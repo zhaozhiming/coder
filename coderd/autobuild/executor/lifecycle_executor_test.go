@@ -2,6 +2,7 @@ package executor_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -486,6 +487,64 @@ func TestExecutorWorkspaceAutostopNoWaitChangedMyMind(t *testing.T) {
 	stats = <-statsCh
 	assert.NoError(t, stats.Error)
 	assert.Len(t, stats.Transitions, 0)
+}
+
+func TestExecutorAutostopDeadlineGetsBumpedAtAutostartTime(t *testing.T) {
+	t.Parallel()
+
+	var (
+		tickCh  = make(chan time.Time)
+		statsCh = make(chan executor.Stats)
+		client  = coderdtest.New(t, &coderdtest.Options{
+			AutobuildTicker:     tickCh,
+			IncludeProvisionerD: true,
+			AutobuildStats:      statsCh,
+		})
+		actualStartTime = time.Now()
+		autostartTime   = actualStartTime.Add(-8 * time.Hour)
+		ttl             = 10 * time.Hour
+		sched           = mustSchedule(t, fmt.Sprintf("CRON_TZ=UTC %d %d * * *", autostartTime.Minute(), autostartTime.Hour()))
+		// Given: we have a user with a workspace configured to start in the past
+		workspace = mustProvisionWorkspace(t, client, func(cwr *codersdk.CreateWorkspaceRequest) {
+			cwr.AutostartSchedule = ptr.Ref(sched.String())
+			cwr.TTLMillis = ptr.Ref(ttl.Milliseconds())
+		})
+	)
+
+	// When: the user is coding away happily through the night and the workspace hits the
+	// configured autostart time
+
+	go func() {
+		tickCh <- sched.Next(actualStartTime)
+	}()
+
+	// Then: obviously the workspace should not stop
+	stats := <-statsCh
+	require.NoError(t, stats.Error)
+	require.Len(t, stats.Transitions, 0)
+
+	// When: we fast-forward to just after the manual start time plus ttl
+	t1 := actualStartTime.Add(ttl).Add(time.Minute)
+	go func() {
+		tickCh <- t1
+	}()
+
+	// Then: the workspace should not have stopped
+	stats = <-statsCh
+	require.NoError(t, stats.Error)
+	require.Len(t, stats.Transitions, 0)
+
+	// When: we fast-forward to just after the configured autostart time plus the ttl
+	t2 := sched.Next(t1).Add(time.Minute)
+	go func() {
+		tickCh <- t2
+	}()
+
+	// Then: the workspace should be stopped
+	require.NoError(t, stats.Error)
+	require.Len(t, stats.Transitions, 1)
+	require.Contains(t, stats.Transitions, workspace.ID)
+	require.Equal(t, database.WorkspaceTransitionStop, stats.Transitions[workspace.ID])
 }
 
 func TestExecutorAutostartMultipleOK(t *testing.T) {
