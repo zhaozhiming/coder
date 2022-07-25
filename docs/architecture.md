@@ -1,4 +1,4 @@
-# Architecture
+# Architecture t
 
 <p align="center">
   <img src="./images/architecture.png" width="700px">
