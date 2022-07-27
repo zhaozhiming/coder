@@ -84,6 +84,11 @@
           "title": "Configuring Web IDEs",
           "description": "Learn how to configure web IDEs in your templates",
           "path": "./ides/configuring-web-ides.md"
+        },
+        {
+          "title": "Configuring Emacs (with TRAMP)",
+          "description": "Learn how to configure Emacs with Coder",
+          "path": "./ides/configuring-emacs-tramp.md"
         }
       ]
     },
