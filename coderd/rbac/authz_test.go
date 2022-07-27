@@ -69,6 +69,26 @@ func BenchmarkRBACFilter(b *testing.B) {
 	rbac.Filter(ctx, authorizer, "me", roles, rbac.ActionRead, objectList)
 }
 
+func BenchmarkRBACFilterPart(b *testing.B) {
+	ctx := context.Background()
+	objectList := make([]rbac.Object, b.N)
+	orgID := uuid.New()
+	for i := range objectList {
+		objectList[i] = rbac.ResourceWorkspace.
+			InOrg(orgID).
+			WithID(uuid.NewString()).
+			WithOwner("other")
+	}
+
+	authorizer, err := rbac.NewAuthorizer()
+	require.NoError(b, err)
+
+	roles := []string{rbac.RoleOrgAdmin(orgID), rbac.RoleOrgMember(orgID), "auditor", rbac.RoleAdmin(), rbac.RoleMember()}
+
+	b.ResetTimer()
+	rbac.FilterPart(ctx, authorizer, "me", roles, rbac.ActionRead, objectList, objectList[0].Type)
+}
+
 func TestFilter(t *testing.T) {
 	t.Parallel()
 
