@@ -27,6 +27,7 @@ bool_flip(b) = flipped {
 perms_grant(permissions) = grants {
     # If there are no permissions, this value is the empty set {}.
     grants := { x |
+#    	print("Finish start perm_grant")
         # All permissions ...
         perm := permissions[_]
         # Such that the permission action, type, and resource_id matches
@@ -34,6 +35,7 @@ perms_grant(permissions) = grants {
         perm.resource_type in [input.object.type, "*"]
         perm.resource_id in [input.object.id, "*"]
         x := bool_flip(perm.negate)
+        print("Finish perm_grant", x)
     }
 }
 
@@ -54,6 +56,7 @@ user = grant {
     # Only apply user permissions if the user owns the resource
     input.object.owner != ""
     input.object.owner == input.subject.id
+    print("User")
     grant = { v |
         # For each role, grab the user permissions.
         # Find the grants on this permission list.

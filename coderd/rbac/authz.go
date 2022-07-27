@@ -3,7 +3,7 @@ package rbac
 import (
 	"context"
 	_ "embed"
-
+	"fmt"
 	"golang.org/x/xerrors"
 
 	"github.com/open-policy-agent/opa/rego"
@@ -94,6 +94,68 @@ func (a RegoAuthorizer) Authorize(ctx context.Context, subjectID string, roles [
 	if !results.Allowed() {
 		return ForbiddenWithInternal(xerrors.Errorf("policy disallows request"), input, results)
 	}
+
+	return nil
+}
+
+// Load the policy from policy.rego in this directory.
+//go:embed partial.rego
+var partial string
+
+func (a RegoAuthorizer) Partial(ctx context.Context, subjectID string, roleNames []string, action Action, object Object) error {
+	roles := make([]Role, 0, len(roleNames))
+	for _, n := range roleNames {
+		r, err := RoleByName(n)
+		if err != nil {
+			return xerrors.Errorf("get role permissions: %w", err)
+		}
+		roles = append(roles, r)
+	}
+
+	input := map[string]interface{}{
+		"subject": authSubject{
+			ID:    subjectID,
+			Roles: roles,
+		},
+		"object": map[string]string{
+			"type": object.Type,
+		},
+		"action": action,
+	}
+
+	query, err := rego.New(
+		// Query returns true/false for authorization access
+		rego.Query("data.authz.allow = true"),
+		rego.Module("partial.rego", partial),
+		rego.Unknowns([]string{
+			"input.object.owner",
+			"input.object.org_owner",
+		}),
+	).PrepareForPartial(ctx)
+
+	part, err := query.Partial(ctx, rego.EvalInput(input))
+	if err != nil {
+		return ForbiddenWithInternal(xerrors.Errorf("eval rego: %w", err), input, nil)
+	}
+
+	for _, q := range part.Queries {
+		fmt.Println(q.String())
+	}
+	fmt.Println("--")
+	for _, s := range part.Support {
+		fmt.Println(s.String())
+	}
+	fmt.Println("---")
+
+	// REGULAR
+	input["object"] = object
+	rs, err := rego.New(
+		// Query returns true/false for authorization access
+		rego.Query("data.authz.allow"),
+		rego.Module("partial.rego", partial),
+		rego.Input(input),
+	).Eval(ctx)
+	fmt.Println("Allow:", rs.Allowed())
 
 	return nil
 }
