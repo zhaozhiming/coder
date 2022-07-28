@@ -4,9 +4,8 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"golang.org/x/xerrors"
-
 	"github.com/open-policy-agent/opa/rego"
+	"golang.org/x/xerrors"
 )
 
 type Authorizer interface {
@@ -45,7 +44,7 @@ func NewAuthorizer() (*RegoAuthorizer, error) {
 	query, err := rego.New(
 		// Query returns true/false for authorization access
 		rego.Query("data.authz.allow"),
-		rego.Module("policy.rego", policy),
+		rego.Module("policy.rego", partial),
 	).PrepareForEval(ctx)
 
 	if err != nil {
@@ -98,39 +97,28 @@ func (a RegoAuthorizer) Authorize(ctx context.Context, subjectID string, roles [
 	return nil
 }
 
-// Load the policy from policy.rego in this directory.
-//go:embed partial.rego
-var partial string
-
-func FilterPart[O Objecter](ctx context.Context, auth Authorizer, subjID string, subjRoles []string, action Action, objects []O, objecType string) []O {
-	filtered := make([]O, 0)
-
-	part, input, err := auth.(*RegoAuthorizer).partialQuery(ctx, subjID, subjRoles, action, objecType)
+func (a *RegoAuthorizer) AuthorizePartial(ctx context.Context, subjectID string, roles []Role, action Action, object Object) error {
+	query, err := a.partial(ctx, subjectID, roles, action, object.Type)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	for i := range objects {
-		object := objects[i]
-		input["object"] = object
-		results, err := part.Rego(rego.Input(input)).Eval(ctx)
-		if err == nil && results.Allowed() {
-			filtered = append(filtered, object)
-		}
+	known := map[string]interface{}{
+		"object": object,
 	}
-	return filtered
+	results, err := query.Rego(rego.Input(known)).Eval(ctx)
+	if err != nil {
+		return ForbiddenWithInternal(xerrors.Errorf("eval rego: %w", err), known, results)
+	}
+
+	if !results.Allowed() {
+		return ForbiddenWithInternal(xerrors.Errorf("policy disallows request"), known, results)
+	}
+
+	return nil
 }
 
-func (a RegoAuthorizer) partialQuery(ctx context.Context, subjectID string, roleNames []string, action Action, objectType string) (rego.PartialResult, map[string]interface{}, error) {
-	roles := make([]Role, 0, len(roleNames))
-	for _, n := range roleNames {
-		r, err := RoleByName(n)
-		if err != nil {
-			return rego.PartialResult{}, nil, xerrors.Errorf("get role permissions: %w", err)
-		}
-		roles = append(roles, r)
-	}
-
+func (a RegoAuthorizer) partial(ctx context.Context, subjectID string, roles []Role, action Action, objectType string) (rego.PartialResult, error) {
 	input := map[string]interface{}{
 		"subject": authSubject{
 			ID:    subjectID,
@@ -142,8 +130,7 @@ func (a RegoAuthorizer) partialQuery(ctx context.Context, subjectID string, role
 		"action": action,
 	}
 
-	part, err := rego.New(
-		// Query returns true/false for authorization access
+	query, err := rego.New(
 		rego.Query("data.authz.allow"),
 		rego.Module("partial.rego", partial),
 		rego.Input(input),
@@ -152,12 +139,44 @@ func (a RegoAuthorizer) partialQuery(ctx context.Context, subjectID string, role
 			"input.object.org_owner",
 		}),
 	).PartialResult(ctx)
-
 	if err != nil {
-		return rego.PartialResult{}, nil, err
+		return rego.PartialResult{}, err
+	}
+	return query, nil
+}
+
+// Load the policy from policy.rego in this directory.
+//go:embed partial.rego
+var partial string
+
+func FilterPart[O Objecter](ctx context.Context, auth Authorizer, subjID string, subjRoles []string, action Action, objects []O, objectType string) []O {
+	filtered := make([]O, 0)
+
+	roles := make([]Role, 0, len(subjRoles))
+	for _, n := range subjRoles {
+		r, err := RoleByName(n)
+		if err != nil {
+			return filtered
+		}
+		roles = append(roles, r)
 	}
 
-	return part, input, nil
+	query, err := auth.(*RegoAuthorizer).partial(ctx, subjID, roles, action, objectType)
+	if err != nil {
+		return filtered
+	}
+
+	for i := range objects {
+		object := objects[i]
+		known := map[string]interface{}{
+			"object": object,
+		}
+		results, err := query.Rego(rego.Input(known)).Eval(ctx)
+		if err == nil && results.Allowed() {
+			filtered = append(filtered, object)
+		}
+	}
+	return filtered
 }
 
 func (a RegoAuthorizer) Partial(ctx context.Context, subjectID string, roleNames []string, action Action, object Object) error {
@@ -169,7 +188,10 @@ func (a RegoAuthorizer) Partial(ctx context.Context, subjectID string, roleNames
 		}
 		roles = append(roles, r)
 	}
+	return a.PartialR(ctx, subjectID, roles, action, object)
+}
 
+func (a RegoAuthorizer) PartialR(ctx context.Context, subjectID string, roles []Role, action Action, object Object) error {
 	input := map[string]interface{}{
 		"subject": authSubject{
 			ID:    subjectID,
@@ -189,6 +211,7 @@ func (a RegoAuthorizer) Partial(ctx context.Context, subjectID string, roleNames
 		rego.Unknowns([]string{
 			"input.object.owner",
 			"input.object.org_owner",
+			"input.object.resource_id",
 		}),
 	).Partial(ctx)
 
