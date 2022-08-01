@@ -34,15 +34,17 @@ var (
 )
 
 const (
-	varURL             = "url"
-	varToken           = "token"
-	varAgentToken      = "agent-token"
-	varAgentURL        = "agent-url"
-	varGlobalConfig    = "global-config"
-	varNoOpen          = "no-open"
-	varNoVersionCheck  = "no-version-warning"
-	varForceTty        = "force-tty"
-	varVerbose         = "verbose"
+	varURL            = "url"
+	varToken          = "token"
+	varAgentToken     = "agent-token"
+	varAgentURL       = "agent-url"
+	varGlobalConfig   = "global-config"
+	varNoOpen         = "no-open"
+	varNoVersionCheck = "no-version-warning"
+	varForceTty       = "force-tty"
+	varVerbose        = "verbose"
+	varOutputFormat   = "output"
+
 	notLoggedInMessage = "You are not logged in. Try logging in using 'coder login <url>'."
 
 	envNoVersionCheck = "CODER_NO_VERSION_WARNING"
