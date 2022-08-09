@@ -5,6 +5,7 @@ import { PageHeader, PageHeaderSubtitle, PageHeaderTitle } from "components/Page
 import { Stack } from "components/Stack/Stack"
 import { AuditHelpTooltip } from "components/Tooltips"
 import { FC } from "react"
+import { Test } from "./Test"
 
 export const Language = {
   title: "Audit",
@@ -33,6 +34,7 @@ export const AuditPageView: FC = () => {
           code="coder audit [organization_ID]"
         />
       </Stack>
+      <Test />
     </Margins>
   )
 }
