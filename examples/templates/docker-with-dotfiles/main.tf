@@ -21,7 +21,8 @@ terraform {
 data "coder_provisioner" "me" {
 }
 
-provider "docker" {
+provider "coder" {
+  host = "host.docker.internal"
 }
 
 data "coder_workspace" "me" {
@@ -52,8 +53,7 @@ resource "docker_container" "workspace" {
   # Uses lower() to avoid Docker restriction on container names.
   name = "coder-${data.coder_workspace.me.owner}-${lower(data.coder_workspace.me.name)}"
   dns  = ["1.1.1.1"]
-  # Refer to Docker host when Coder is on localhost
-  command = ["sh", "-c", replace(coder_agent.main.init_script, "127.0.0.1", "host.docker.internal")]
+  command = ["sh", "-c", coder_agent.main.init_script]
   env     = ["CODER_AGENT_TOKEN=${coder_agent.main.token}"]
   host {
     host = "host.docker.internal"
