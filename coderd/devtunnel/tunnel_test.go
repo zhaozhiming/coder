@@ -209,7 +209,7 @@ allowed_ip=%s/128`,
 		PrivateKey: device.NoisePrivateKey(priv),
 		PublicKey:  device.NoisePublicKey(pub),
 		Tunnel: devtunnel.Node{
-			HostnameHTTPS:     strings.TrimPrefix(f.server.URL, "https://"),
+			HostnameHTTP:      strings.TrimPrefix(f.server.URL, "https://"),
 			HostnameWireguard: "localhost",
 			WireguardPort:     wgPort,
 		},

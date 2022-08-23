@@ -40,6 +40,7 @@ type Config struct {
 	// Used in testing.  Normally this is nil, indicating to use DefaultClient.
 	HTTPClient *http.Client `json:"-"`
 }
+
 type configExt struct {
 	Version    int                    `json:"-"`
 	PrivateKey device.NoisePrivateKey `json:"-"`
@@ -126,7 +127,8 @@ allowed_ip=%s/128`,
 	}()
 
 	return &Tunnel{
-		URL:      fmt.Sprintf("https://%s", server.Hostname),
+		// URL:      fmt.Sprintf("https://%s", server.Hostname),
+		URL:      fmt.Sprintf("http://%s", server.Hostname),
 		Listener: wgListen,
 	}, ch, nil
 }
@@ -188,7 +190,7 @@ func sendConfigToServer(ctx context.Context, cfg Config) (ServerResponse, error)
 		return ServerResponse{}, xerrors.Errorf("marshal config: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://"+cfg.Tunnel.HostnameHTTPS+"/tun", bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://"+cfg.Tunnel.HostnameHTTP+"/tun", bytes.NewReader(raw))
 	if err != nil {
 		return ServerResponse{}, xerrors.Errorf("new request: %w", err)
 	}

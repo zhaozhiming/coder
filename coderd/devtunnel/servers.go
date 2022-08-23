@@ -21,7 +21,8 @@ type Region struct {
 type Node struct {
 	ID                int    `json:"id"`
 	RegionID          int    `json:"region_id"`
-	HostnameHTTPS     string `json:"hostname_https"`
+	HostnameHTTP      string `json:"hostname_https"`
+	Secure            bool   `json:"secure"` // Whether to use HTTPS.
 	HostnameWireguard string `json:"hostname_wireguard"`
 	WireguardPort     uint16 `json:"wireguard_port"`
 
@@ -29,16 +30,30 @@ type Node struct {
 }
 
 var Regions = []Region{
+	// {
+	// 	ID:           0,
+	// 	LocationName: "US East Pittsburgh",
+	// 	Nodes: []Node{
+	// 		{
+	// 			ID:                1,
+	// 			RegionID:          0,
+	// 			HostnameHTTP:      "pit-1.try.coder.app",
+	// 			Secure:            true,
+	// 			HostnameWireguard: "pit-1.try.coder.app",
+	// 			WireguardPort:     55551,
+	// 		},
+	// 	},
+	// },
 	{
 		ID:           0,
-		LocationName: "US East Pittsburgh",
+		LocationName: "Local",
 		Nodes: []Node{
 			{
 				ID:                1,
 				RegionID:          0,
-				HostnameHTTPS:     "pit-1.try.coder.app",
-				HostnameWireguard: "pit-1.try.coder.app",
-				WireguardPort:     55551,
+				HostnameHTTP:      "local.try.coder.app:8080",
+				HostnameWireguard: "local.try.coder.app",
+				WireguardPort:     55555,
 			},
 		},
 	},
@@ -63,7 +78,7 @@ func FindClosestNode() (Node, error) {
 	for i, node := range nodes {
 		i, node := i, node
 		eg.Go(func() error {
-			pinger, err := ping.NewPinger(node.HostnameHTTPS)
+			pinger, err := ping.NewPinger(node.HostnameHTTP)
 			if err != nil {
 				return err
 			}
