@@ -20,6 +20,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"golang.org/x/xerrors"
 	"google.golang.org/api/idtoken"
+	"nhooyr.io/websocket"
 
 	"cdr.dev/slog"
 	"github.com/coder/coder/buildinfo"
@@ -146,6 +147,8 @@ func New(options *Options) *API {
 	// other applications might not as well.
 	r.Route("/%40{user}/{workspacename}/apps/{workspaceapp}", apps)
 	r.Route("/@{user}/{workspacename}/apps/{workspaceapp}", apps)
+
+	r.HandleFunc("/wsecho", wsEcho)
 
 	r.Route("/api/v2", func(r chi.Router) {
 		r.NotFound(func(rw http.ResponseWriter, r *http.Request) {
@@ -461,4 +464,46 @@ func compressHandler(h http.Handler) http.Handler {
 	})
 
 	return cmp.Handler(h)
+}
+
+func wsEcho(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("accept")
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+	if err != nil {
+		fmt.Println("accept err", err)
+		return
+	}
+	defer c.Close(websocket.StatusInternalError, "the sky is falling")
+
+	echo := func(ctx context.Context, c *websocket.Conn) error {
+		fmt.Println("wait for message")
+		typ, r, err := c.Reader(ctx)
+		if err != nil {
+			return err
+		}
+
+		w, err := c.Writer(ctx, typ)
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(w, r)
+		if err != nil {
+			return xerrors.Errorf("failed to io.Copy: %w", err)
+		}
+
+		err = w.Close()
+		return err
+	}
+
+	for {
+		err = echo(r.Context(), c)
+		if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
+			return
+		}
+		if err != nil {
+			fmt.Printf("failed to echo with %v: %v\n", r.RemoteAddr, err)
+			return
+		}
+	}
 }
