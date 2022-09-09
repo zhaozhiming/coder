@@ -1,5 +1,7 @@
 import Avatar from "@material-ui/core/Avatar"
 import Button from "@material-ui/core/Button"
+import Tabs from "@material-ui/core/Tabs"
+import Tab from "@material-ui/core/Tab"
 import Link from "@material-ui/core/Link"
 import { makeStyles } from "@material-ui/core/styles"
 import AddCircleOutline from "@material-ui/icons/AddCircleOutline"
@@ -8,8 +10,11 @@ import { DeleteButton } from "components/DropdownButton/ActionCtas"
 import { DropdownButton } from "components/DropdownButton/DropdownButton"
 import { ErrorSummary } from "components/ErrorSummary/ErrorSummary"
 import { Markdown } from "components/Markdown/Markdown"
+import InfoIcon from "@material-ui/icons/Info"
+import AnalyticsIcon from "@material-ui/icons/BarChart"
+import SettingsIcon from "@material-ui/icons/Settings"
 import frontMatter from "front-matter"
-import { FC } from "react"
+import { FC, useState } from "react"
 import { Link as RouterLink } from "react-router-dom"
 import { firstLetter } from "util/firstLetter"
 import {
@@ -64,6 +69,7 @@ export const TemplatePageView: FC<React.PropsWithChildren<TemplatePageViewProps>
   const styles = useStyles()
   const readme = frontMatter(activeTemplateVersion.readme)
   const hasIcon = template.icon && template.icon !== ""
+  const [tabIndex, setTabIndex] = useState(0)
 
   const deleteError = deleteTemplateError ? (
     <ErrorSummary error={deleteTemplateError} dismissible />
@@ -137,6 +143,13 @@ export const TemplatePageView: FC<React.PropsWithChildren<TemplatePageViewProps>
           </Stack>
         </PageHeader>
 
+            <Tabs value={tabIndex} onChange={(_, value) => {
+              setTabIndex(value)
+            }}>
+                <Tab icon={<InfoIcon />} label="Info" />
+                <Tab icon={<AnalyticsIcon />} label="Insights" />
+                <Tab icon={<SettingsIcon />} label="Settings" />
+            </Tabs>
         <Stack spacing={2.5}>
           {deleteError}
           {templateDAUs && <DAUChart templateDAUs={templateDAUs} />}

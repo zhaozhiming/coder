@@ -143,6 +143,45 @@ export const getOverrides = ({ palette, breakpoints }: Theme): Overrides => {
       },
     },
 
+    MuiTabs: {
+      root: {
+        borderBottom: `1px solid ${colors.gray[13]}`,
+        marginBottom: 16,
+      },
+      indicator: {
+        backgroundColor: colors.gray[4],
+        borderRadius: 2,
+      },
+    },
+
+    MuiTab: {
+      textColorPrimary: {
+        color: colors.gray[6],
+        "&.Mui-selected": {
+          color: colors.gray[4],
+        },
+      },
+      root: {
+        textTransform: "unset",
+        letterSpacing: "unset",
+        minWidth: "120px !important",
+      },
+      labelIcon: {
+        minHeight: 48,
+      },
+      wrapper: {
+        flexDirection: "row",
+        fontSize: 16,
+        fontWeight: 400,
+        "& > svg": {
+          marginBottom: "0 !important",
+          marginRight: 8,
+          width: 20,
+          height: 20,
+        },
+      },
+    },
+
     MuiInputBase: {
       root: {
         borderRadius,
