@@ -1,6 +1,6 @@
 # Resource Metadata
 
-Expose key workspace information to your users via [`coder_metadata`](https://registry.terraform.io/providers/coder/coder/latest/docs/resources/metadata) resources in your template code.
+Expose key workspace information to your users via [`coder_metadata`](https://registry.terraform.io/providers/coder/coder/latest/docs/resources/metadata) resources in your template code. Additionally, metadata can be used to modify (or hide) resources displayed in the dashboard.
 
 ![ui](../images/metadata-ui.png)
 
@@ -52,6 +52,21 @@ resource "coder_metadata" "deployment" {
     key = "name"
     value = kubernetes_deployment.coder[0].metadata[0].name
   }
+}
+```
+
+## Hiding resources
+
+If you would not like to display a specific resource in the dashboard, you can hide it from the dashboard with the [hide](https://registry.terraform.io/providers/coder/coder/latest/docs/resources/metadata#hide) property.
+
+```hcl
+resource "kubernetes_service_account" "user" {
+  ...
+}
+
+resource "coder_metadata" "hide_service_account" {
+  resource_id = kubernetes_service_account.user.id
+  hide        =  true
 }
 ```
 
