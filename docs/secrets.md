@@ -68,6 +68,35 @@ A catch-all variation of this approach is dynamically provisioning a cloud servi
 for each workspace and then making the relevant secrets available via the cloud's secret management
 system.
 
+## Token Management (enterprise)
+
+Coder can manage tokens on behalf of users on the following platforms:
+
+- GitHub
+- GitHub Enterprise
+- BitBucket
+- BitBucket Server
+- GitLab.com
+- GitLab Self-Managed
+- Hasicorp Vault [(coming soon)](https://coder.com/contact)
+
+When users create/update workspaces, Coder will <a href="https://www.kapwing.com/e/631cf6a369c1ee00e55ff6ab" target="_blank">prompt users</a>
+to authenticate with the provider if a valid token is not present.
+
+```hcl
+resource "coder_user_token" "github-enterprise" {
+  type                = "github"
+  host                = "https://github-enterprise.example.com"
+  oauth_client_id     = var.github_client_id # via environment variable
+  oauth_client_secret = var.github_client_secret # via environment variable
+
+  add_coder_key  = true
+  scopes         = ["read:user", "write:public_key", "write:gpg_key", "repo"]
+}
+```
+
+> See the [Coder Terraform provider docs](#needs-link) for examples for each platform.
+
 ## Displaying Secrets
 
 While you can inject secrets into the workspace via environment variables, you
