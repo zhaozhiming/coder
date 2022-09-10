@@ -38,12 +38,18 @@ func NewEnterprise(options *coderd.Options) *coderd.API {
 	if auditLog == "disable" || auditLog == "false" || auditLog == "0" || auditLog == "no" {
 		en.AuditLogs = false
 	}
-	eOpts.FeaturesService = newFeaturesService(
+
+	api := coderd.New(&eOpts)
+	// the features service is added after the API is constructed because the
+	// SCIM feature requires a fully instantiated API struct.
+	api.Options.FeaturesService = newFeaturesService(
 		context.Background(),
 		eOpts.Logger,
 		eOpts.Database,
 		eOpts.Pubsub,
 		en,
+		api,
 	)
-	return coderd.New(&eOpts)
+
+	return api
 }

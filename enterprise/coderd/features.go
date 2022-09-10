@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/coder/enterprise/audit/backends"
+	"github.com/coder/coder/enterprise/scim"
 
 	"github.com/cenkalti/backoff/v4"
 	"golang.org/x/xerrors"
@@ -27,6 +28,7 @@ import (
 
 type Enablements struct {
 	AuditLogs bool
+	SCIM      bool
 }
 
 type featuresService struct {
@@ -56,6 +58,7 @@ func newFeaturesService(
 	db database.Store,
 	pubsub database.Pubsub,
 	enablements Enablements,
+	api *agpl.API,
 ) features.Service {
 	fs := &featuresService{
 		logger:      logger,
@@ -69,6 +72,7 @@ func newFeaturesService(
 				backends.NewPostgres(db, true),
 				backends.NewSlog(logger),
 			),
+			SCIM: scim.NewHandler(logger, db, api.CreateUser, api.ScimAPIKey),
 		},
 		resyncInterval: 10 * time.Minute,
 		entitlements: entitlements{
@@ -171,6 +175,7 @@ type entitlements struct {
 	hasLicense  bool
 	activeUsers numericalEntitlement
 	auditLogs   entitlement
+	scim        entitlement
 }
 
 func (s *featuresService) getEntitlements(ctx context.Context) (entitlements, error) {
@@ -207,6 +212,9 @@ func (s *featuresService) getEntitlements(ctx context.Context) (entitlements, er
 		}
 		if claims.Features.AuditLog > 0 {
 			e.auditLogs.state = thisEntitlement
+		}
+		if claims.Features.SCIM > 0 {
+			e.scim.state = thisEntitlement
 		}
 	}
 	return e, nil

@@ -71,6 +71,7 @@ require (
 	github.com/bgentry/speakeasy v0.1.0
 	github.com/bramvdbogaerde/go-scp v1.2.0
 	github.com/briandowns/spinner v1.18.1
+	github.com/cenkalti/backoff/v4 v4.1.3
 	github.com/charmbracelet/charm v0.12.1
 	github.com/charmbracelet/lipgloss v0.6.0
 	github.com/cli/safeexec v1.0.0
@@ -107,6 +108,7 @@ require (
 	github.com/hashicorp/terraform-config-inspect v0.0.0-20211115214459-90acf1ca460f
 	github.com/hashicorp/terraform-json v0.14.0
 	github.com/hashicorp/yamux v0.0.0-20220718163420-dd80a7ee44ce
+	github.com/imulab/go-scim/pkg/v2 v2.2.0
 	github.com/jedib0t/go-pretty/v6 v6.3.5
 	github.com/justinas/nosurf v1.1.1
 	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
@@ -187,7 +189,6 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bep/godartsass v0.14.0 // indirect
 	github.com/bep/golibsass v1.1.0 // indirect
-	github.com/cenkalti/backoff/v4 v4.1.3
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/charmbracelet/bubbles v0.10.3 // indirect
 	github.com/charmbracelet/bubbletea v0.20.0 // indirect
@@ -276,6 +277,7 @@ require (
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20200313005456-10cdbea86bc0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
+	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect

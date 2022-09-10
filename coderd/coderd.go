@@ -33,6 +33,7 @@ import (
 	"github.com/coder/coder/coderd/httpmw"
 	"github.com/coder/coder/coderd/metricscache"
 	"github.com/coder/coder/coderd/rbac"
+	"github.com/coder/coder/coderd/scim"
 	"github.com/coder/coder/coderd/telemetry"
 	"github.com/coder/coder/coderd/tracing"
 	"github.com/coder/coder/coderd/turnconn"
@@ -81,6 +82,8 @@ type Options struct {
 
 	MetricsCacheRefreshInterval time.Duration
 	AgentStatsRefreshInterval   time.Duration
+
+	ScimAPIKey []byte
 }
 
 // New constructs a Coder API handler.
@@ -219,6 +222,8 @@ func New(options *Options) *API {
 			w.WriteHeader(http.StatusOK)
 		})
 	})
+
+	r.Mount("/scim/v2", scim.Mount(options.FeaturesService))
 
 	r.Route("/api/v2", func(r chi.Router) {
 		r.NotFound(func(rw http.ResponseWriter, r *http.Request) {

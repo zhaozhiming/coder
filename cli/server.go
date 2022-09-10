@@ -123,6 +123,7 @@ func Server(newAPI func(*coderd.Options) *coderd.API) *cobra.Command {
 		verbose                          bool
 		metricsCacheRefreshInterval      time.Duration
 		agentStatRefreshInterval         time.Duration
+		scimAuthHeader                   string
 	)
 
 	root := &cobra.Command{
@@ -375,6 +376,7 @@ func Server(newAPI func(*coderd.Options) *coderd.API) *cobra.Command {
 				AutoImportTemplates:         validatedAutoImportTemplates,
 				MetricsCacheRefreshInterval: metricsCacheRefreshInterval,
 				AgentStatsRefreshInterval:   agentStatRefreshInterval,
+				ScimAPIKey:                  []byte(scimAuthHeader),
 			}
 
 			if oauth2GithubClientSecret != "" {
@@ -854,6 +856,7 @@ func Server(newAPI func(*coderd.Options) *coderd.API) *cobra.Command {
 	cliflag.BoolVarP(root.Flags(), &spooky, "spooky", "", "", false, "Specifies spookiness level")
 	_ = root.Flags().MarkHidden("spooky")
 	cliflag.BoolVarP(root.Flags(), &verbose, "verbose", "v", "CODER_VERBOSE", false, "Enables verbose logging.")
+	cliflag.StringVarP(root.Flags(), &scimAuthHeader, "scim-auth-header", "", "CODER_SCIM_API_KEY", "", "Enables and sets the authentication header for the built-in SCIM server.")
 
 	// These metrics flags are for manually testing the metric system.
 	// The defaults should be acceptable for any Coder deployment of any

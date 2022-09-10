@@ -9,6 +9,7 @@ import (
 	"github.com/coder/coder/coderd/audit"
 	"github.com/coder/coder/coderd/features"
 	"github.com/coder/coder/coderd/httpapi"
+	"github.com/coder/coder/coderd/scim"
 	"github.com/coder/coder/codersdk"
 )
 
@@ -88,10 +89,12 @@ func (f *featuresService) setImplementation(vf reflect.Value, tf reflect.Type) e
 // FeatureInterfaces contains a field for each interface controlled by an enterprise feature.
 type FeatureInterfaces struct {
 	Auditor audit.Auditor
+	SCIM    scim.Handler
 }
 
 // DisabledImplementations includes all the implementations of turned-off features.  There are no
 // turned-on implementations in AGPL code.
 var DisabledImplementations = FeatureInterfaces{
 	Auditor: audit.NewNop(),
+	SCIM:    scim.NewNop(),
 }
