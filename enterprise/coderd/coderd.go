@@ -60,6 +60,17 @@ func New(ctx context.Context, options *Options) (*API, error) {
 		})
 	})
 
+	if len(options.ScimAPIKey) != 0 {
+		api.scimHandler = newScimHandler(
+			options.Logger,
+			options.Database,
+			api.AGPL.CreateUser,
+			api.ScimAPIKey,
+		)
+
+		api.AGPL.RootHandler.Mount("/scim/v2", api.scimHandler)
+	}
+
 	err := api.updateEntitlements(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("update entitlements: %w", err)
@@ -79,6 +90,7 @@ type Options struct {
 	*coderd.Options
 
 	AuditLogging               bool
+	ScimAPIKey                 []byte
 	EntitlementsUpdateInterval time.Duration
 	Keys                       map[string]ed25519.PublicKey
 }
@@ -93,6 +105,8 @@ type API struct {
 	hasLicense             bool
 	activeUsers            codersdk.Feature
 	auditLogs              codersdk.Entitlement
+
+	scimHandler *scimHandler
 }
 
 func (api *API) Close() error {
@@ -134,6 +148,7 @@ func (api *API) updateEntitlements(ctx context.Context) error {
 		Entitlement: codersdk.EntitlementNotEntitled,
 	}
 	auditLogs := codersdk.EntitlementNotEntitled
+	scim := codersdk.EntitlementNotEntitled
 
 	for _, l := range licenses {
 		claims, err := validateDBLicense(l, api.Keys)
@@ -162,6 +177,9 @@ func (api *API) updateEntitlements(ctx context.Context) error {
 		if claims.Features.AuditLog > 0 {
 			auditLogs = entitlement
 		}
+		if claims.Features.SCIM > 0 {
+			scim = entitlement
+		}
 	}
 
 	if auditLogs != api.auditLogs {
@@ -177,6 +195,8 @@ func (api *API) updateEntitlements(ctx context.Context) error {
 		}
 		api.AGPL.Auditor.Store(auditor)
 	}
+
+	api.scimHandler.Entitlement.Store(&scim)
 
 	api.hasLicense = hasLicense
 	api.activeUsers = activeUsers
