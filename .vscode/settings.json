@@ -184,7 +184,6 @@
     "-short",
     "-coverpkg=./..."
   ],
-  "git.mergeEditor": false,
   // We often use a version of TypeScript that's ahead of the version shipped
   // with VS Code.
   "typescript.tsdk": "./site/node_modules/typescript/lib"
