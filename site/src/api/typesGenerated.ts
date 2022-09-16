@@ -370,9 +370,9 @@ export interface Role {
 
 // From codersdk/sse.go
 export interface ServerSentEvent {
-  readonly Type: ServerSentEventType
+  readonly type: ServerSentEventType
   // eslint-disable-next-line
-  readonly Data: any
+  readonly data: any
 }
 
 // From codersdk/templates.go
@@ -617,8 +617,8 @@ export interface WorkspaceBuild {
   readonly initiator_name: string
   readonly job: ProvisionerJob
   readonly reason: BuildReason
+  readonly resources: WorkspaceResource[]
   readonly deadline?: string
-  readonly resources?: WorkspaceResource[]
 }
 
 // From codersdk/workspaces.go
