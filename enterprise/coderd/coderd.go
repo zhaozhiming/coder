@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -61,14 +62,16 @@ func New(ctx context.Context, options *Options) (*API, error) {
 	})
 
 	if len(options.ScimAPIKey) != 0 {
-		api.scimHandler = newScimHandler(
-			options.Logger,
-			options.Database,
-			api.AGPL.CreateUser,
-			api.ScimAPIKey,
-		)
-
-		api.AGPL.RootHandler.Mount("/scim/v2", api.scimHandler)
+		api.AGPL.RootHandler.Route("/scim/v2", func(r chi.Router) {
+			r.Use(api.scimEnabledMW)
+			r.Post("/Users", api.scimPostUser)
+			r.Route("/Users", func(r chi.Router) {
+				r.Get("/", api.scimGetUsers)
+				r.Post("/", api.scimPostUser)
+				r.Get("/{id}", api.scimGetUser)
+				r.Patch("/{id}", api.scimPatchUser)
+			})
+		})
 	}
 
 	err := api.updateEntitlements(ctx)
@@ -105,8 +108,7 @@ type API struct {
 	hasLicense             bool
 	activeUsers            codersdk.Feature
 	auditLogs              codersdk.Entitlement
-
-	scimHandler *scimHandler
+	scim                   atomic.Pointer[codersdk.Entitlement]
 }
 
 func (api *API) Close() error {
@@ -196,11 +198,10 @@ func (api *API) updateEntitlements(ctx context.Context) error {
 		api.AGPL.Auditor.Store(auditor)
 	}
 
-	api.scimHandler.Entitlement.Store(&scim)
-
 	api.hasLicense = hasLicense
 	api.activeUsers = activeUsers
 	api.auditLogs = auditLogs
+	api.scim.Store(&scim)
 
 	return nil
 }

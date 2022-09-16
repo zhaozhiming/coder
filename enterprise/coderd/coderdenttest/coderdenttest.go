@@ -36,6 +36,7 @@ func init() {
 
 type Options struct {
 	*coderdtest.Options
+	ScimAPIKey []byte
 }
 
 // New constructs a codersdk client connected to an in-memory Enterprise API instance.
@@ -54,6 +55,7 @@ func NewWithAPI(t *testing.T, options *Options) (*codersdk.Client, io.Closer, *c
 	srv, oop := coderdtest.NewOptions(t, options.Options)
 	coderAPI, err := coderd.New(context.Background(), &coderd.Options{
 		AuditLogging: true,
+		ScimAPIKey:   options.ScimAPIKey,
 		Options:      oop,
 		Keys: map[string]ed25519.PublicKey{
 			testKeyID: testPublicKey,
@@ -79,6 +81,7 @@ type AddLicenseOptions struct {
 	ExpiresAt   time.Time
 	UserLimit   int64
 	AuditLog    bool
+	SCIM        bool
 }
 
 // AddLicense generates a new license with the options provided and inserts it.
@@ -93,6 +96,11 @@ func AddLicense(t *testing.T, client *codersdk.Client, options AddLicenseOptions
 	if options.AuditLog {
 		auditLog = 1
 	}
+	scim := int64(0)
+	if options.SCIM {
+		scim = 1
+	}
+
 	c := &coderd.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test@testing.test",
@@ -107,6 +115,7 @@ func AddLicense(t *testing.T, client *codersdk.Client, options AddLicenseOptions
 		Features: coderd.Features{
 			UserLimit: options.UserLimit,
 			AuditLog:  auditLog,
+			SCIM:      scim,
 		},
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodEdDSA, c)

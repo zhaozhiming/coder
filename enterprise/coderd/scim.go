@@ -1,11 +1,10 @@
 package coderd
 
 import (
-	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -14,69 +13,27 @@ import (
 	"github.com/imulab/go-scim/pkg/v2/service"
 	"github.com/imulab/go-scim/pkg/v2/spec"
 
-	"cdr.dev/slog"
 	agpl "github.com/coder/coder/coderd"
 	"github.com/coder/coder/coderd/database"
 	"github.com/coder/coder/coderd/httpapi"
 	"github.com/coder/coder/codersdk"
 )
 
-func newScimHandler(
-	logger slog.Logger,
-	db database.Store,
-	createUser func(ctx context.Context, store database.Store, req agpl.CreateUserRequest) (database.User, uuid.UUID, error),
-	scimAPIKey []byte,
-) *scimHandler {
-	r := chi.NewRouter()
-	h := &scimHandler{
-		Entitlement: atomic.Pointer[codersdk.Entitlement]{},
-		r:           r,
+func (api *API) scimEnabledMW(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if ent := *api.scim.Load(); ent == codersdk.EntitlementNotEntitled {
+			httpapi.RouteNotFound(rw)
+			return
+		}
 
-		log:        logger,
-		db:         db,
-		createUser: createUser,
-		scimAPIKey: scimAPIKey,
-	}
-
-	r.Post("/Users", h.postUser)
-	r.Route("/Users", func(r chi.Router) {
-		r.Get("/", h.getUsers)
-		r.Post("/", h.postUser)
-		r.Get("/{id}", h.getUser)
-		r.Patch("/{id}", h.patchUser)
+		next.ServeHTTP(rw, r)
 	})
-	ent := codersdk.EntitlementNotEntitled
-	h.Entitlement.Store(&ent)
-
-	return h
 }
 
-type scimHandler struct {
-	Entitlement atomic.Pointer[codersdk.Entitlement]
-	r           *chi.Mux
-
-	db  database.Store
-	log slog.Logger
-
-	createUser func(ctx context.Context, store database.Store, req agpl.CreateUserRequest) (database.User, uuid.UUID, error)
-
-	scimAPIKey []byte
-}
-
-func (s *scimHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if ent := *s.Entitlement.Load(); ent == codersdk.EntitlementNotEntitled {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("404 not found"))
-		return
-	}
-
-	s.r.ServeHTTP(w, r)
-}
-
-func (s *scimHandler) verifyAuthHeader(r *http.Request) bool {
+func (api *API) scimVerifyAuthHeader(r *http.Request) bool {
 	hdr := []byte(r.Header.Get("Authorization"))
 
-	return len(s.scimAPIKey) != 0 && subtle.ConstantTimeCompare(hdr, s.scimAPIKey) == 1
+	return len(api.ScimAPIKey) != 0 && subtle.ConstantTimeCompare(hdr, api.ScimAPIKey) == 1
 }
 
 // getUsers intentionally always returns no users. This is done to always force
@@ -84,13 +41,13 @@ func (s *scimHandler) verifyAuthHeader(r *http.Request) bool {
 // implement fetching users twice.
 //
 //nolint:revive
-func (s *scimHandler) getUsers(w http.ResponseWriter, r *http.Request) {
-	if !s.verifyAuthHeader(r) {
-		_ = handlerutil.WriteError(w, spec.Error{Status: http.StatusUnauthorized, Type: "invalidAuthorization"})
+func (api *API) scimGetUsers(rw http.ResponseWriter, r *http.Request) {
+	if !api.scimVerifyAuthHeader(r) {
+		_ = handlerutil.WriteError(rw, spec.Error{Status: http.StatusUnauthorized, Type: "invalidAuthorization"})
 		return
 	}
 
-	_ = handlerutil.WriteSearchResultToResponse(w, &service.QueryResponse{
+	_ = handlerutil.WriteSearchResultToResponse(rw, &service.QueryResponse{
 		TotalResults: 0,
 		StartIndex:   1,
 		ItemsPerPage: 0,
@@ -98,25 +55,25 @@ func (s *scimHandler) getUsers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getUser intentionally always returns an error saying the user wasn't found.
+// scimGetUser intentionally always returns an error saying the user wasn't found.
 // This is done to always force Okta to try and create the user, this way we
 // don't need to implement fetching users twice.
 //
 //nolint:revive
-func (s *scimHandler) getUser(w http.ResponseWriter, r *http.Request) {
-	if !s.verifyAuthHeader(r) {
-		_ = handlerutil.WriteError(w, spec.Error{Status: http.StatusUnauthorized, Type: "invalidAuthorization"})
+func (api *API) scimGetUser(rw http.ResponseWriter, r *http.Request) {
+	if !api.scimVerifyAuthHeader(r) {
+		_ = handlerutil.WriteError(rw, spec.Error{Status: http.StatusUnauthorized, Type: "invalidAuthorization"})
 		return
 	}
 
-	_ = handlerutil.WriteError(w, spec.ErrNotFound)
+	_ = handlerutil.WriteError(rw, spec.ErrNotFound)
 }
 
 // We currently use our own struct instead of using the SCIM package. This was
 // done mostly because the SCIM package was almost impossible to use. We only
 // need these fields, so it was much simpler to use our own struct. This was
 // tested only with Okta.
-type scimUser struct {
+type ScimUser struct {
 	Schemas  []string `json:"schemas"`
 	ID       string   `json:"id"`
 	UserName string   `json:"userName"`
@@ -137,18 +94,18 @@ type scimUser struct {
 	} `json:"meta"`
 }
 
-// postUser creates a new user, or returns the existing user if it exists.
-func (s *scimHandler) postUser(w http.ResponseWriter, r *http.Request) {
+// scimPostUser creates a new user, or returns the existing user if it exists.
+func (api *API) scimPostUser(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if !s.verifyAuthHeader(r) {
-		_ = handlerutil.WriteError(w, spec.Error{Status: http.StatusUnauthorized, Type: "invalidAuthorization"})
+	if !api.scimVerifyAuthHeader(r) {
+		_ = handlerutil.WriteError(rw, spec.Error{Status: http.StatusUnauthorized, Type: "invalidAuthorization"})
 		return
 	}
 
-	var sUser scimUser
+	var sUser ScimUser
 	err := json.NewDecoder(r.Body).Decode(&sUser)
 	if err != nil {
-		_ = handlerutil.WriteError(w, err)
+		_ = handlerutil.WriteError(rw, err)
 		return
 	}
 
@@ -161,11 +118,11 @@ func (s *scimHandler) postUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if email == "" {
-		_ = handlerutil.WriteError(w, spec.Error{Status: http.StatusBadRequest, Type: "invalidEmail"})
+		_ = handlerutil.WriteError(rw, spec.Error{Status: http.StatusBadRequest, Type: "invalidEmail"})
 		return
 	}
 
-	user, _, err := s.createUser(ctx, s.db, agpl.CreateUserRequest{
+	user, _, err := api.AGPL.CreateUser(ctx, api.Database, agpl.CreateUserRequest{
 		CreateUserRequest: codersdk.CreateUserRequest{
 			Username: sUser.UserName,
 			Email:    email,
@@ -173,43 +130,43 @@ func (s *scimHandler) postUser(w http.ResponseWriter, r *http.Request) {
 		LoginType: database.LoginTypeOIDC,
 	})
 	if err != nil {
-		_ = handlerutil.WriteError(w, err)
+		_ = handlerutil.WriteError(rw, err)
 		return
 	}
 
 	sUser.ID = user.ID.String()
 	sUser.UserName = user.Username
 
-	httpapi.Write(w, http.StatusOK, sUser)
+	httpapi.Write(rw, http.StatusOK, sUser)
 }
 
-// patchUser supports suspending and activating users only.
-func (s *scimHandler) patchUser(w http.ResponseWriter, r *http.Request) {
+// scimPatchUser supports suspending and activating users only.
+func (api *API) scimPatchUser(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if !s.verifyAuthHeader(r) {
-		_ = handlerutil.WriteError(w, spec.Error{Status: http.StatusUnauthorized, Type: "invalidAuthorization"})
+	if !api.scimVerifyAuthHeader(r) {
+		_ = handlerutil.WriteError(rw, spec.Error{Status: http.StatusUnauthorized, Type: "invalidAuthorization"})
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 
-	var sUser scimUser
+	var sUser ScimUser
 	err := json.NewDecoder(r.Body).Decode(&sUser)
 	if err != nil {
-		_ = handlerutil.WriteError(w, err)
+		_ = handlerutil.WriteError(rw, err)
 		return
 	}
 	sUser.ID = id
 
 	uid, err := uuid.Parse(id)
 	if err != nil {
-		_ = handlerutil.WriteError(w, spec.Error{Status: http.StatusBadRequest, Type: "invalidId"})
+		_ = handlerutil.WriteError(rw, spec.Error{Status: http.StatusBadRequest, Type: "invalidId"})
 		return
 	}
 
-	dbUser, err := s.db.GetUserByID(ctx, uid)
+	dbUser, err := api.Database.GetUserByID(ctx, uid)
 	if err != nil {
-		_ = handlerutil.WriteError(w, err)
+		_ = handlerutil.WriteError(rw, err)
 		return
 	}
 
@@ -220,15 +177,16 @@ func (s *scimHandler) patchUser(w http.ResponseWriter, r *http.Request) {
 		status = database.UserStatusSuspended
 	}
 
-	_, err = s.db.UpdateUserStatus(r.Context(), database.UpdateUserStatusParams{
+	fmt.Println("status", status)
+	_, err = api.Database.UpdateUserStatus(r.Context(), database.UpdateUserStatusParams{
 		ID:        dbUser.ID,
 		Status:    status,
 		UpdatedAt: database.Now(),
 	})
 	if err != nil {
-		_ = handlerutil.WriteError(w, err)
+		_ = handlerutil.WriteError(rw, err)
 		return
 	}
 
-	httpapi.Write(w, http.StatusOK, sUser)
+	httpapi.Write(rw, http.StatusOK, sUser)
 }
