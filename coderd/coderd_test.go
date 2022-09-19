@@ -17,6 +17,7 @@ import (
 
 	"github.com/coder/coder/buildinfo"
 	"github.com/coder/coder/coderd/coderdtest"
+	"github.com/coder/coder/codersdk"
 	"github.com/coder/coder/tailnet"
 	"github.com/coder/coder/testutil"
 )
@@ -123,4 +124,28 @@ func TestDERPLatencyCheck(t *testing.T) {
 	require.NoError(t, err)
 	defer res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)
+}
+
+func TestFlags(t *testing.T) {
+	t.Parallel()
+	t.Run("NoPermission", func(t *testing.T) {
+		t.Parallel()
+		client := coderdtest.New(t, nil)
+		_, err := client.Flags(context.Background())
+		require.Error(t, err)
+	})
+	t.Run("Success", func(t *testing.T) {
+		t.Parallel()
+		want := []codersdk.Flag{{
+			Category: "something",
+			Name:     "",
+		}}
+		client := coderdtest.New(t, &coderdtest.Options{
+			Flags: want,
+		})
+		coderdtest.CreateFirstUser(t, client)
+		got, err := client.Flags(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	})
 }

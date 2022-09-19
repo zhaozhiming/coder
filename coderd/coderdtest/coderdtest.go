@@ -78,6 +78,7 @@ type Options struct {
 	AutobuildTicker      <-chan time.Time
 	AutobuildStats       chan<- executor.Stats
 	Auditor              audit.Auditor
+	Flags                []codersdk.Flag
 
 	// IncludeProvisionerDaemon when true means to start an in-memory provisionerD
 	IncludeProvisionerDaemon    bool
@@ -228,6 +229,7 @@ func newWithAPI(t *testing.T, options *Options) (*codersdk.Client, io.Closer, *c
 		AWSCertificates:      options.AWSCertificates,
 		AzureCertificates:    options.AzureCertificates,
 		GithubOAuth2Config:   options.GithubOAuth2Config,
+		Flags:                options.Flags,
 		OIDCConfig:           options.OIDCConfig,
 		GoogleTokenValidator: options.GoogleTokenValidator,
 		SSHKeygenAlgorithm:   options.SSHKeygenAlgorithm,

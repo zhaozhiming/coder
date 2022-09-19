@@ -46,3 +46,29 @@ func (c *Client) Entitlements(ctx context.Context) (Entitlements, error) {
 	var ent Entitlements
 	return ent, json.NewDecoder(res.Body).Decode(&ent)
 }
+
+// Flag represents read-only data for displaying a runtime
+// option in the user-interface. This API is intended to
+// bring otherwise hidden command-line functionality to
+// the dashboard for visibility.
+type Flag struct {
+	Category            string `json:"category"`
+	Name                string `json:"name"`
+	Usage               string `json:"usage"`
+	EnvironmentVariable string `json:"environment_variable"`
+	Value               string `json:"value"`
+	Secret              bool   `json:"secret"`
+}
+
+func (c *Client) Flags(ctx context.Context) ([]Flag, error) {
+	res, err := c.Request(ctx, http.MethodGet, "/api/v2/flags", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, readBodyAsError(res)
+	}
+	var flags []Flag
+	return flags, json.NewDecoder(res.Body).Decode(&flags)
+}

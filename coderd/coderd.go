@@ -61,6 +61,7 @@ type Options struct {
 	AWSCertificates      awsidentity.Certificates
 	Authorizer           rbac.Authorizer
 	AzureCertificates    x509.VerifyOptions
+	Flags                []codersdk.Flag
 	GoogleTokenValidator *idtoken.Validator
 	GithubOAuth2Config   *GithubOAuth2Config
 	OIDCConfig           *OIDCConfig
@@ -240,6 +241,10 @@ func New(options *Options) *API {
 		// All CSP errors will be logged
 		r.Post("/csp/reports", api.logReportCSPViolations)
 
+		r.Route("/flags", func(r chi.Router) {
+			r.Use(apiKeyMiddleware)
+			r.Get("/", api.flags)
+		})
 		r.Route("/buildinfo", func(r chi.Router) {
 			r.Get("/", func(rw http.ResponseWriter, r *http.Request) {
 				httpapi.Write(rw, http.StatusOK, codersdk.BuildInfoResponse{
@@ -524,6 +529,15 @@ func (api *API) Close() error {
 	api.metricsCache.Close()
 
 	return api.workspaceAgentCache.Close()
+}
+
+func (api *API) flags(rw http.ResponseWriter, r *http.Request) {
+	if !api.Authorize(r, rbac.ActionRead, rbac.ResourceWildcard) {
+		httpapi.Forbidden(rw)
+		return
+	}
+
+	httpapi.Write(rw, http.StatusOK, api.Flags)
 }
 
 func compressHandler(h http.Handler) http.Handler {
