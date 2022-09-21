@@ -38,6 +38,7 @@ type GithubOAuth2Config struct {
 	AllowSignups       bool
 	AllowOrganizations []string
 	AllowTeams         []GithubOAuth2Team
+	Origin             string
 }
 
 func (api *API) userAuthMethods(rw http.ResponseWriter, _ *http.Request) {
@@ -306,9 +307,10 @@ func (api *API) userOIDC(rw http.ResponseWriter, r *http.Request) {
 }
 
 type oauthLoginParams struct {
-	State     httpmw.OAuth2State
-	LinkedID  string
-	LoginType database.LoginType
+	State       httpmw.OAuth2State
+	LinkedID    string
+	LoginType   database.LoginType
+	LoginOrigin string
 
 	// The following are necessary in order to
 	// create new users.
@@ -344,7 +346,7 @@ func (api *API) oauthLogin(r *http.Request, params oauthLoginParams) (*http.Cook
 			err  error
 		)
 
-		user, link, err = findLinkedUser(ctx, tx, params.LinkedID, params.Email)
+		user, link, err = findLinkedUser(ctx, tx, params.LoginOrigin, params.LinkedID, params.Email)
 		if err != nil {
 			return xerrors.Errorf("find linked user: %w", err)
 		}
@@ -395,6 +397,7 @@ func (api *API) oauthLogin(r *http.Request, params oauthLoginParams) (*http.Cook
 			link, err = tx.InsertUserLink(ctx, database.InsertUserLinkParams{
 				UserID:            user.ID,
 				LoginType:         params.LoginType,
+				LoginOrigin:       params.LoginOrigin,
 				LinkedID:          params.LinkedID,
 				OAuthAccessToken:  params.State.Token.AccessToken,
 				OAuthRefreshToken: params.State.Token.RefreshToken,
@@ -480,8 +483,9 @@ func (api *API) oauthLogin(r *http.Request, params oauthLoginParams) (*http.Cook
 	}
 
 	cookie, err := api.createAPIKey(r, createAPIKeyParams{
-		UserID:    user.ID,
-		LoginType: params.LoginType,
+		UserID:      user.ID,
+		LoginType:   params.LoginType,
+		LoginOrigin: params.LoginOrigin,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("create API key: %w", err)
@@ -503,7 +507,7 @@ func oidcLinkedID(tok *oidc.IDToken) string {
 
 // findLinkedUser tries to find a user by their unique OAuth-linked ID.
 // If it doesn't not find it, it returns the user by their email.
-func findLinkedUser(ctx context.Context, db database.Store, linkedID string, emails ...string) (database.User, database.UserLink, error) {
+func findLinkedUser(ctx context.Context, db database.Store, loginOrigin, linkedID string, emails ...string) (database.User, database.UserLink, error) {
 	var (
 		user database.User
 		link database.UserLink
@@ -546,9 +550,10 @@ func findLinkedUser(ctx context.Context, db database.Store, linkedID string, ema
 	// LEGACY: This is annoying but we have to search for the user_link
 	// again except this time we search by user_id and login_type. It's
 	// possible that a user_link exists without a populated 'linked_id'.
-	link, err = db.GetUserLinkByUserIDLoginType(ctx, database.GetUserLinkByUserIDLoginTypeParams{
-		UserID:    user.ID,
-		LoginType: user.LoginType,
+	link, err = db.GetUserLinkByUserIDAndLogin(ctx, database.GetUserLinkByUserIDAndLoginParams{
+		UserID:      user.ID,
+		LoginType:   user.LoginType,
+		LoginOrigin: loginOrigin,
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return database.User{}, database.UserLink{}, xerrors.Errorf("get user link by user id and login type: %w", err)

@@ -147,7 +147,7 @@ func (q *sqlQuerier) DeleteAPIKeyByID(ctx context.Context, id string) error {
 
 const getAPIKeyByID = `-- name: GetAPIKeyByID :one
 SELECT
-	id, hashed_secret, user_id, last_used, expires_at, created_at, updated_at, login_type, lifetime_seconds, ip_address, scope
+	id, hashed_secret, user_id, last_used, expires_at, created_at, updated_at, login_type, lifetime_seconds, ip_address, scope, login_origin
 FROM
 	api_keys
 WHERE
@@ -171,12 +171,13 @@ func (q *sqlQuerier) GetAPIKeyByID(ctx context.Context, id string) (APIKey, erro
 		&i.LifetimeSeconds,
 		&i.IPAddress,
 		&i.Scope,
+		&i.LoginOrigin,
 	)
 	return i, err
 }
 
 const getAPIKeysLastUsedAfter = `-- name: GetAPIKeysLastUsedAfter :many
-SELECT id, hashed_secret, user_id, last_used, expires_at, created_at, updated_at, login_type, lifetime_seconds, ip_address, scope FROM api_keys WHERE last_used > $1
+SELECT id, hashed_secret, user_id, last_used, expires_at, created_at, updated_at, login_type, lifetime_seconds, ip_address, scope, login_origin FROM api_keys WHERE last_used > $1
 `
 
 func (q *sqlQuerier) GetAPIKeysLastUsedAfter(ctx context.Context, lastUsed time.Time) ([]APIKey, error) {
@@ -200,6 +201,7 @@ func (q *sqlQuerier) GetAPIKeysLastUsedAfter(ctx context.Context, lastUsed time.
 			&i.LifetimeSeconds,
 			&i.IPAddress,
 			&i.Scope,
+			&i.LoginOrigin,
 		); err != nil {
 			return nil, err
 		}
@@ -227,6 +229,7 @@ INSERT INTO
 		created_at,
 		updated_at,
 		login_type,
+		login_origin,
 		scope
 	)
 VALUES
@@ -236,7 +239,7 @@ VALUES
 	     WHEN 0 THEN 86400
 		 ELSE $2::bigint
 	 END
-	 , $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, hashed_secret, user_id, last_used, expires_at, created_at, updated_at, login_type, lifetime_seconds, ip_address, scope
+	 , $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, hashed_secret, user_id, last_used, expires_at, created_at, updated_at, login_type, lifetime_seconds, ip_address, scope, login_origin
 `
 
 type InsertAPIKeyParams struct {
@@ -250,6 +253,7 @@ type InsertAPIKeyParams struct {
 	CreatedAt       time.Time   `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time   `db:"updated_at" json:"updated_at"`
 	LoginType       LoginType   `db:"login_type" json:"login_type"`
+	LoginOrigin     string      `db:"login_origin" json:"login_origin"`
 	Scope           APIKeyScope `db:"scope" json:"scope"`
 }
 
@@ -265,6 +269,7 @@ func (q *sqlQuerier) InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.LoginType,
+		arg.LoginOrigin,
 		arg.Scope,
 	)
 	var i APIKey
@@ -280,6 +285,7 @@ func (q *sqlQuerier) InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (
 		&i.LifetimeSeconds,
 		&i.IPAddress,
 		&i.Scope,
+		&i.LoginOrigin,
 	)
 	return i, err
 }
@@ -2847,7 +2853,7 @@ func (q *sqlQuerier) UpdateTemplateVersionDescriptionByJobID(ctx context.Context
 
 const getUserLinkByLinkedID = `-- name: GetUserLinkByLinkedID :one
 SELECT
-	user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry
+	user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry, login_origin
 FROM
 	user_links
 WHERE
@@ -2864,26 +2870,28 @@ func (q *sqlQuerier) GetUserLinkByLinkedID(ctx context.Context, linkedID string)
 		&i.OAuthAccessToken,
 		&i.OAuthRefreshToken,
 		&i.OAuthExpiry,
+		&i.LoginOrigin,
 	)
 	return i, err
 }
 
-const getUserLinkByUserIDLoginType = `-- name: GetUserLinkByUserIDLoginType :one
+const getUserLinkByUserIDAndLogin = `-- name: GetUserLinkByUserIDAndLogin :one
 SELECT
-	user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry
+	user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry, login_origin
 FROM
 	user_links
 WHERE
-	user_id = $1 AND login_type = $2
+	user_id = $1 AND login_type = $2 AND login_origin = $3
 `
 
-type GetUserLinkByUserIDLoginTypeParams struct {
-	UserID    uuid.UUID `db:"user_id" json:"user_id"`
-	LoginType LoginType `db:"login_type" json:"login_type"`
+type GetUserLinkByUserIDAndLoginParams struct {
+	UserID      uuid.UUID `db:"user_id" json:"user_id"`
+	LoginType   LoginType `db:"login_type" json:"login_type"`
+	LoginOrigin string    `db:"login_origin" json:"login_origin"`
 }
 
-func (q *sqlQuerier) GetUserLinkByUserIDLoginType(ctx context.Context, arg GetUserLinkByUserIDLoginTypeParams) (UserLink, error) {
-	row := q.db.QueryRowContext(ctx, getUserLinkByUserIDLoginType, arg.UserID, arg.LoginType)
+func (q *sqlQuerier) GetUserLinkByUserIDAndLogin(ctx context.Context, arg GetUserLinkByUserIDAndLoginParams) (UserLink, error) {
+	row := q.db.QueryRowContext(ctx, getUserLinkByUserIDAndLogin, arg.UserID, arg.LoginType, arg.LoginOrigin)
 	var i UserLink
 	err := row.Scan(
 		&i.UserID,
@@ -2892,6 +2900,7 @@ func (q *sqlQuerier) GetUserLinkByUserIDLoginType(ctx context.Context, arg GetUs
 		&i.OAuthAccessToken,
 		&i.OAuthRefreshToken,
 		&i.OAuthExpiry,
+		&i.LoginOrigin,
 	)
 	return i, err
 }
@@ -2901,18 +2910,20 @@ INSERT INTO
 	user_links (
 		user_id,
 		login_type,
+		login_origin,
 		linked_id,
 		oauth_access_token,
 		oauth_refresh_token,
 		oauth_expiry
 	)
 VALUES
-	( $1, $2, $3, $4, $5, $6 ) RETURNING user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry
+	( $1, $2, $3, $4, $5, $6, $7 ) RETURNING user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry, login_origin
 `
 
 type InsertUserLinkParams struct {
 	UserID            uuid.UUID `db:"user_id" json:"user_id"`
 	LoginType         LoginType `db:"login_type" json:"login_type"`
+	LoginOrigin       string    `db:"login_origin" json:"login_origin"`
 	LinkedID          string    `db:"linked_id" json:"linked_id"`
 	OAuthAccessToken  string    `db:"oauth_access_token" json:"oauth_access_token"`
 	OAuthRefreshToken string    `db:"oauth_refresh_token" json:"oauth_refresh_token"`
@@ -2923,6 +2934,7 @@ func (q *sqlQuerier) InsertUserLink(ctx context.Context, arg InsertUserLinkParam
 	row := q.db.QueryRowContext(ctx, insertUserLink,
 		arg.UserID,
 		arg.LoginType,
+		arg.LoginOrigin,
 		arg.LinkedID,
 		arg.OAuthAccessToken,
 		arg.OAuthRefreshToken,
@@ -2936,6 +2948,7 @@ func (q *sqlQuerier) InsertUserLink(ctx context.Context, arg InsertUserLinkParam
 		&i.OAuthAccessToken,
 		&i.OAuthRefreshToken,
 		&i.OAuthExpiry,
+		&i.LoginOrigin,
 	)
 	return i, err
 }
@@ -2948,7 +2961,7 @@ SET
 	oauth_refresh_token = $2,
 	oauth_expiry = $3
 WHERE
-	user_id = $4 AND login_type = $5 RETURNING user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry
+	user_id = $4 AND login_type = $5 AND login_origin = $5 RETURNING user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry, login_origin
 `
 
 type UpdateUserLinkParams struct {
@@ -2975,6 +2988,7 @@ func (q *sqlQuerier) UpdateUserLink(ctx context.Context, arg UpdateUserLinkParam
 		&i.OAuthAccessToken,
 		&i.OAuthRefreshToken,
 		&i.OAuthExpiry,
+		&i.LoginOrigin,
 	)
 	return i, err
 }
@@ -2985,17 +2999,23 @@ UPDATE
 SET
 	linked_id = $1
 WHERE
-	user_id = $2 AND login_type = $3 RETURNING user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry
+	user_id = $2 AND login_type = $3 AND login_origin = $4 RETURNING user_id, login_type, linked_id, oauth_access_token, oauth_refresh_token, oauth_expiry, login_origin
 `
 
 type UpdateUserLinkedIDParams struct {
-	LinkedID  string    `db:"linked_id" json:"linked_id"`
-	UserID    uuid.UUID `db:"user_id" json:"user_id"`
-	LoginType LoginType `db:"login_type" json:"login_type"`
+	LinkedID    string    `db:"linked_id" json:"linked_id"`
+	UserID      uuid.UUID `db:"user_id" json:"user_id"`
+	LoginType   LoginType `db:"login_type" json:"login_type"`
+	LoginOrigin string    `db:"login_origin" json:"login_origin"`
 }
 
 func (q *sqlQuerier) UpdateUserLinkedID(ctx context.Context, arg UpdateUserLinkedIDParams) (UserLink, error) {
-	row := q.db.QueryRowContext(ctx, updateUserLinkedID, arg.LinkedID, arg.UserID, arg.LoginType)
+	row := q.db.QueryRowContext(ctx, updateUserLinkedID,
+		arg.LinkedID,
+		arg.UserID,
+		arg.LoginType,
+		arg.LoginOrigin,
+	)
 	var i UserLink
 	err := row.Scan(
 		&i.UserID,
@@ -3004,6 +3024,7 @@ func (q *sqlQuerier) UpdateUserLinkedID(ctx context.Context, arg UpdateUserLinke
 		&i.OAuthAccessToken,
 		&i.OAuthRefreshToken,
 		&i.OAuthExpiry,
+		&i.LoginOrigin,
 	)
 	return i, err
 }

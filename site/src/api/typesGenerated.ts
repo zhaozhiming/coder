@@ -588,6 +588,12 @@ export interface WorkspaceAgentConnectionInfo {
   readonly derp_map?: any
 }
 
+// From codersdk/workspaceagents.go
+export interface WorkspaceAgentGitExchange {
+  readonly url: string
+  readonly access_token: string
+}
+
 // From codersdk/workspaceresources.go
 export interface WorkspaceAgentInstanceMetadata {
   readonly jail_orchestrator: string

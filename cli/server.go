@@ -1135,6 +1135,11 @@ func configureGithubOAuth2(accessURL *url.URL, clientID, clientSecret string, al
 			TokenURL: tokenURL.String(),
 		}
 	}
+	rawOrigin, err := url.Parse(endpoint.AuthURL)
+	if err != nil {
+		return nil, xerrors.Errorf("parse auth url for endpoint: %w", err)
+	}
+	origin := fmt.Sprintf("%s://%s", rawOrigin.Scheme, rawOrigin.Host)
 
 	return &coderd.GithubOAuth2Config{
 		OAuth2Config: &oauth2.Config{
@@ -1151,6 +1156,7 @@ func configureGithubOAuth2(accessURL *url.URL, clientID, clientSecret string, al
 		AllowSignups:       allowSignups,
 		AllowOrganizations: allowOrgs,
 		AllowTeams:         allowTeams,
+		Origin:             origin,
 		AuthenticatedUser: func(ctx context.Context, client *http.Client) (*github.User, error) {
 			api, err := createClient(client)
 			if err != nil {

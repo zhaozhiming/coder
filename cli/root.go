@@ -152,6 +152,20 @@ func Root(subcommands []*cobra.Command) *cobra.Command {
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr())
 			}
 		},
+		Args: func(cmd *cobra.Command, args []string) error {
+			_, hasGitPrefix := os.LookupEnv("GIT_PREFIX")
+			if hasGitPrefix {
+				return nil
+			}
+			return cobra.NoArgs(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, hasGitPrefix := os.LookupEnv("GIT_PREFIX")
+			if hasGitPrefix {
+				return askpass().ExecuteContext(cmd.Context())
+			}
+			return cmd.Help()
+		},
 		Example: formatExamples(
 			example{
 				Description: "Start a Coder server",

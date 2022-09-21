@@ -1032,8 +1032,9 @@ func generateAPIKeyIDSecret() (id string, secret string, err error) {
 }
 
 type createAPIKeyParams struct {
-	UserID    uuid.UUID
-	LoginType database.LoginType
+	UserID      uuid.UUID
+	LoginType   database.LoginType
+	LoginOrigin string
 
 	// Optional.
 	ExpiresAt       time.Time
@@ -1079,6 +1080,7 @@ func (api *API) createAPIKey(r *http.Request, params createAPIKeyParams) (*http.
 		UpdatedAt:    database.Now(),
 		HashedSecret: hashed[:],
 		LoginType:    params.LoginType,
+		LoginOrigin:  params.LoginOrigin,
 		Scope:        database.APIKeyScopeAll,
 	})
 	if err != nil {

@@ -56,6 +56,11 @@ type PostWorkspaceAgentVersionRequest struct {
 	Version string `json:"version"`
 }
 
+type WorkspaceAgentGitExchange struct {
+	URL         string `json:"url"`
+	AccessToken string `json:"access_token"`
+}
+
 // AuthWorkspaceGoogleInstanceIdentity uses the Google Compute Engine Metadata API to
 // fetch a signed JWT, and exchange it for a session token for a workspace agent.
 //
@@ -196,6 +201,16 @@ func (c *Client) WorkspaceAgentMetadata(ctx context.Context) (agent.Metadata, er
 	}
 	var agentMetadata agent.Metadata
 	return agentMetadata, json.NewDecoder(res.Body).Decode(&agentMetadata)
+}
+
+func (c *Client) WorkspaceAgentGitExchange(ctx context.Context) (WorkspaceAgentGitExchange, error) {
+	res, err := c.Request(ctx, http.MethodGet, "/api/v2/workspaceagents/me/git-exchange", nil)
+	if err != nil {
+		return WorkspaceAgentGitExchange{}, err
+	}
+	defer res.Body.Close()
+	var exchange WorkspaceAgentGitExchange
+	return exchange, json.NewDecoder(res.Body).Decode(&exchange)
 }
 
 func (c *Client) ListenWorkspaceAgentTailnet(ctx context.Context) (net.Conn, error) {

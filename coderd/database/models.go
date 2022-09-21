@@ -344,6 +344,7 @@ type APIKey struct {
 	LifetimeSeconds int64       `db:"lifetime_seconds" json:"lifetime_seconds"`
 	IPAddress       pqtype.Inet `db:"ip_address" json:"ip_address"`
 	Scope           APIKeyScope `db:"scope" json:"scope"`
+	LoginOrigin     string      `db:"login_origin" json:"login_origin"`
 }
 
 type AgentStat struct {
@@ -536,6 +537,7 @@ type UserLink struct {
 	OAuthAccessToken  string    `db:"oauth_access_token" json:"oauth_access_token"`
 	OAuthRefreshToken string    `db:"oauth_refresh_token" json:"oauth_refresh_token"`
 	OAuthExpiry       time.Time `db:"oauth_expiry" json:"oauth_expiry"`
+	LoginOrigin       string    `db:"login_origin" json:"login_origin"`
 }
 
 type Workspace struct {

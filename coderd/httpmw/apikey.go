@@ -54,12 +54,8 @@ func UserAuthorization(r *http.Request) Authorization {
 	return auth
 }
 
-// OAuth2Configs is a collection of configurations for OAuth-based authentication.
-// This should be extended to support other authentication types in the future.
-type OAuth2Configs struct {
-	Github OAuth2Config
-	OIDC   OAuth2Config
-}
+// OAuth2Configs maps origin to an OAuth configuration.
+type OAuth2Configs map[string]OAuth2Config
 
 const (
 	signedOutErrorMessage string = "You are signed out or your session has expired. Please sign in again to continue."
@@ -195,7 +191,7 @@ func ExtractAPIKey(db database.Store, oauth *OAuth2Configs, redirectToLogin bool
 
 			var link database.UserLink
 			if key.LoginType != database.LoginTypePassword {
-				link, err = db.GetUserLinkByUserIDLoginType(r.Context(), database.GetUserLinkByUserIDLoginTypeParams{
+				link, err = db.GetUserLinkByUserIDAndLogin(r.Context(), database.GetUserLinkByUserIDAndLoginParams{
 					UserID:    key.UserID,
 					LoginType: key.LoginType,
 				})

@@ -115,7 +115,8 @@ CREATE TABLE api_keys (
     login_type login_type NOT NULL,
     lifetime_seconds bigint DEFAULT 86400 NOT NULL,
     ip_address inet DEFAULT '0.0.0.0'::inet NOT NULL,
-    scope api_key_scope DEFAULT 'all'::public.api_key_scope NOT NULL
+    scope api_key_scope DEFAULT 'all'::public.api_key_scope NOT NULL,
+    login_origin text DEFAULT ''::text NOT NULL
 );
 
 CREATE TABLE audit_logs (
@@ -294,7 +295,8 @@ CREATE TABLE user_links (
     linked_id text DEFAULT ''::text NOT NULL,
     oauth_access_token text DEFAULT ''::text NOT NULL,
     oauth_refresh_token text DEFAULT ''::text NOT NULL,
-    oauth_expiry timestamp with time zone DEFAULT '0001-01-01 00:00:00+00'::timestamp with time zone NOT NULL
+    oauth_expiry timestamp with time zone DEFAULT '0001-01-01 00:00:00+00'::timestamp with time zone NOT NULL,
+    login_origin text DEFAULT ''::text NOT NULL
 );
 
 CREATE TABLE users (
@@ -458,7 +460,7 @@ ALTER TABLE ONLY templates
     ADD CONSTRAINT templates_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY user_links
-    ADD CONSTRAINT user_links_pkey PRIMARY KEY (user_id, login_type);
+    ADD CONSTRAINT user_links_pkey PRIMARY KEY (user_id, login_type, login_origin);
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);

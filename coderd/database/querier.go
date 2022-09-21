@@ -73,7 +73,7 @@ type querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserCount(ctx context.Context) (int64, error)
 	GetUserLinkByLinkedID(ctx context.Context, linkedID string) (UserLink, error)
-	GetUserLinkByUserIDLoginType(ctx context.Context, arg GetUserLinkByUserIDLoginTypeParams) (UserLink, error)
+	GetUserLinkByUserIDAndLogin(ctx context.Context, arg GetUserLinkByUserIDAndLoginParams) (UserLink, error)
 	GetUsers(ctx context.Context, arg GetUsersParams) ([]User, error)
 	GetUsersByIDs(ctx context.Context, arg GetUsersByIDsParams) ([]User, error)
 	GetWorkspaceAgentByAuthToken(ctx context.Context, authToken uuid.UUID) (WorkspaceAgent, error)

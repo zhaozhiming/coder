@@ -1615,6 +1615,7 @@ func (q *fakeQuerier) InsertAPIKey(_ context.Context, arg database.InsertAPIKeyP
 		UpdatedAt:       arg.UpdatedAt,
 		LastUsed:        arg.LastUsed,
 		LoginType:       arg.LoginType,
+		LoginOrigin:     arg.LoginOrigin,
 		Scope:           arg.Scope,
 	}
 	q.apiKeys = append(q.apiKeys, key)
@@ -2574,12 +2575,12 @@ func (q *fakeQuerier) GetUserLinkByLinkedID(_ context.Context, id string) (datab
 	return database.UserLink{}, sql.ErrNoRows
 }
 
-func (q *fakeQuerier) GetUserLinkByUserIDLoginType(_ context.Context, params database.GetUserLinkByUserIDLoginTypeParams) (database.UserLink, error) {
+func (q *fakeQuerier) GetUserLinkByUserIDAndLogin(_ context.Context, params database.GetUserLinkByUserIDAndLoginParams) (database.UserLink, error) {
 	q.mutex.RLock()
 	defer q.mutex.RUnlock()
 
 	for _, link := range q.userLinks {
-		if link.UserID == params.UserID && link.LoginType == params.LoginType {
+		if link.UserID == params.UserID && link.LoginType == params.LoginType && link.LoginOrigin == params.LoginOrigin {
 			return link, nil
 		}
 	}
