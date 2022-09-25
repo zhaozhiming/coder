@@ -1764,6 +1764,11 @@
     "@nodelib/fs.scandir" "2.1.5"
     fastq "^1.6.0"
 
+"@novnc/novnc@^1.3.0":
+  version "1.3.0"
+  resolved "https://registry.yarnpkg.com/@novnc/novnc/-/novnc-1.3.0.tgz#06db5ff55eae646a623d3717d8bffaf131ffb93a"
+  integrity sha512-tR87mY5ADtaELadmZfW937JO/p8fRdz3wkPoqwhqB/vY1XnTQeLSWwkp4yMlr4iIDY0iCficfzFYX5EHMh4MHw==
+
 "@npmcli/fs@^1.0.0":
   version "1.1.1"
   resolved "https://registry.yarnpkg.com/@npmcli/fs/-/fs-1.1.1.tgz#72f719fe935e687c56a4faecf3c03d06ba593257"
@@ -3165,6 +3170,11 @@
   version "2.4.1"
   resolved "https://registry.yarnpkg.com/@types/normalize-package-data/-/normalize-package-data-2.4.1.tgz#d3357479a0fdfdd5907fe67e17e0a85c906e1301"
   integrity sha512-Gj7cI7z+98M282Tqmp2K5EIsoouUEzbBJhQQzDE3jSIRk6r9gsz0oUokqIUR4u1R3dMHo0pDHM7sNOHyhulypw==
+
+"@types/novnc__novnc@^1.3.0":
+  version "1.3.0"
+  resolved "https://registry.yarnpkg.com/@types/novnc__novnc/-/novnc__novnc-1.3.0.tgz#12e9892d7cdb8f79a8974b20fdaf22b143c7957f"
+  integrity sha512-IiNumU7H5ezJhJlhFEUk8ouQ4z+DOX6Ldvlh2MwQ+fsN03FMLHJyAIBLVMaC+1pC43BMAqmTNMTK85sFlq0ADw==
 
 "@types/npmlog@^4.1.2":
   version "4.1.4"

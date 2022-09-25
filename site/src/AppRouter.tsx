@@ -9,6 +9,7 @@ import { SetupPage } from "pages/SetupPage/SetupPage"
 import { TemplateSettingsPage } from "pages/TemplateSettingsPage/TemplateSettingsPage"
 import TemplatesPage from "pages/TemplatesPage/TemplatesPage"
 import UsersPage from "pages/UsersPage/UsersPage"
+import { VNCPage } from "pages/VNCPage/VNCPage"
 import WorkspacesPage from "pages/WorkspacesPage/WorkspacesPage"
 import { FC, lazy, Suspense, useContext } from "react"
 import { Route, Routes } from "react-router-dom"
@@ -160,6 +161,8 @@ export const AppRouter: FC = () => {
           <Route path="security" element={<SecurityPage />} />
           <Route path="ssh-keys" element={<SSHKeysPage />} />
         </Route>
+
+        <Route path="/vnc" element={<VNCPage />} />
 
         <Route path="/@:username">
           <Route path=":workspace">
