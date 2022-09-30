@@ -24,7 +24,7 @@ const CreateWorkspacePage: FC = () => {
   const [organizationId] = useState<string>(useOrganizationId())
   const [owner, setOwner] = useState<User | null>(me ?? null)
   const [templateName] = useState<string>(template ? template : "")
-  const [templates] = useState<Template[]>()
+  const [templates, setTemplates] = useState<Template[]>()
   const [selectedTemplate, setSelectedTemplate] = useState<Template>()
   const [templateSchema, setTemplateSchema] = useState<ParameterSchema[]>()
   const [creatingWorkspace, setCreatingWorkspace] = useState<boolean>(false)
@@ -41,6 +41,7 @@ const CreateWorkspacePage: FC = () => {
         const temps = res.filter((template) => template.name === templateName)
         const selectedTemps = res.length > 0 ? temps[0] : undefined
         setSelectedTemplate(selectedTemps)
+        setTemplates(temps)
       },
       (err) => {
         setGetTemplatesError(err)
