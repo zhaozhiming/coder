@@ -1,5 +1,11 @@
 import { useActor } from "@xstate/react"
-import { User, Template, ParameterSchema } from "api/typesGenerated"
+import {
+  checkAuthorization,
+  createWorkspace,
+  getTemplates,
+  getTemplateVersionSchema,
+} from "api/api"
+import { ParameterSchema, Template, User } from "api/typesGenerated"
 import { useOrganizationId } from "hooks/useOrganizationId"
 import { FC, useContext, useEffect, useState } from "react"
 import { Helmet } from "react-helmet-async"
@@ -7,12 +13,6 @@ import { useNavigate, useParams } from "react-router-dom"
 import { pageTitle } from "util/page"
 import { XServiceContext } from "xServices/StateContext"
 import { CreateWorkspaceErrors, CreateWorkspacePageView } from "./CreateWorkspacePageView"
-import {
-  checkAuthorization,
-  createWorkspace,
-  getTemplates,
-  getTemplateVersionSchema,
-} from "api/api"
 
 const CreateWorkspacePage: FC = () => {
   const { template } = useParams()
@@ -22,7 +22,7 @@ const CreateWorkspacePage: FC = () => {
   const { me } = authState.context
 
   const [organizationId] = useState<string>(useOrganizationId())
-  const [owner, setOwner] = useState<User | null>((me ?? null))
+  const [owner, setOwner] = useState<User | null>(me ?? null)
   const [templateName] = useState<string>(template ? template : "")
   const [templates] = useState<Template[]>()
   const [selectedTemplate, setSelectedTemplate] = useState<Template>()
@@ -36,13 +36,16 @@ const CreateWorkspacePage: FC = () => {
 
   useEffect(() => {
     setGetTemplatesError(undefined)
-    getTemplates(organizationId).then((res) => {
-      const temps = res.filter((template) => template.name === templateName)
-      const selectedTemps = res.length > 0 ? temps[0] : undefined
-      setSelectedTemplate(selectedTemps)
-    }, (err) => {
-      setGetTemplatesError(err)
-    })
+    getTemplates(organizationId).then(
+      (res) => {
+        const temps = res.filter((template) => template.name === templateName)
+        const selectedTemps = res.length > 0 ? temps[0] : undefined
+        setSelectedTemplate(selectedTemps)
+      },
+      (err) => {
+        setGetTemplatesError(err)
+      },
+    )
   }, [organizationId, templateName])
 
   useEffect(() => {
@@ -51,14 +54,17 @@ const CreateWorkspacePage: FC = () => {
     }
 
     setGetTemplateSchemaError(undefined)
-    getTemplateVersionSchema(selectedTemplate.active_version_id).then((res) => {
-      // Only show parameters that are allowed to be overridden.
-      // CLI code: https://github.com/coder/coder/blob/main/cli/create.go#L152-L155
-      res = res.filter((param) => param.allow_override_source)
-      setTemplateSchema(res)
-    }, (err) => {
-      setGetTemplateSchemaError(err)
-    })
+    getTemplateVersionSchema(selectedTemplate.active_version_id).then(
+      (res) => {
+        // Only show parameters that are allowed to be overridden.
+        // CLI code: https://github.com/coder/coder/blob/main/cli/create.go#L152-L155
+        res = res.filter((param) => param.allow_override_source)
+        setTemplateSchema(res)
+      },
+      (err) => {
+        setGetTemplateSchemaError(err)
+      },
+    )
   }, [selectedTemplate])
 
   useEffect(() => {
@@ -83,14 +89,20 @@ const CreateWorkspacePage: FC = () => {
     setCheckPermissionsError(undefined)
     checkAuthorization({
       checks: permissionsToCheck,
-    }).then((res) => {
-      setPermissions(res)
-    }, (err) => {
-      setCheckPermissionsError(err)
-    })
+    }).then(
+      (res) => {
+        setPermissions(res)
+      },
+      (err) => {
+        setCheckPermissionsError(err)
+      },
+    )
   }, [organizationId, selectedTemplate])
 
-  const hasErrors = getTemplatesError || getTemplateSchemaError || createWorkspaceError ? true : false
+  const hasErrors =
+    getTemplatesError || getTemplateSchemaError || createWorkspaceError || checkPermissionsError
+      ? true
+      : false
 
   return (
     <>
@@ -121,12 +133,14 @@ const CreateWorkspacePage: FC = () => {
         onSubmit={(req) => {
           setCreatingWorkspace(true)
 
-          createWorkspace(organizationId, owner?.id ?? "me", req)
-          .then((res) => {
-            navigate(`/@${res.owner_name}/${res.name}`)
-          }, (err) => {
-            setCreateWorkspaceError(err)
-          })
+          createWorkspace(organizationId, owner?.id ?? "me", req).then(
+            (res) => {
+              navigate(`/@${res.owner_name}/${res.name}`)
+            },
+            (err) => {
+              setCreateWorkspaceError(err)
+            },
+          )
         }}
       />
     </>

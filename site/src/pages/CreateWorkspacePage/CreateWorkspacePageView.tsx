@@ -146,9 +146,13 @@ export const CreateWorkspacePageView: FC<React.PropsWithChildren<CreateWorkspace
 
               {props.canCreateForUser && (
                 <>
-                  {Boolean(props.createWorkspaceErrors[CreateWorkspaceErrors.CHECK_PERMISSIONS_ERROR]) && (
+                  {Boolean(
+                    props.createWorkspaceErrors[CreateWorkspaceErrors.CHECK_PERMISSIONS_ERROR],
+                  ) && (
                     <ErrorSummary
-                      error={props.createWorkspaceErrors[CreateWorkspaceErrors.CHECK_PERMISSIONS_ERROR]}
+                      error={
+                        props.createWorkspaceErrors[CreateWorkspaceErrors.CHECK_PERMISSIONS_ERROR]
+                      }
                     />
                   )}
                   <UserAutocomplete
