@@ -8,7 +8,8 @@ CREATE TYPE api_key_scope AS ENUM (
 CREATE TYPE audit_action AS ENUM (
     'create',
     'write',
-    'delete'
+    'delete',
+    'login'
 );
 
 CREATE TYPE build_reason AS ENUM (

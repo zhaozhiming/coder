@@ -128,10 +128,18 @@ func InitRequest[T Auditable](w http.ResponseWriter, p *RequestParams) (*Request
 			p.Log.Warn(logCtx, "parse ip", slog.Error(err))
 		}
 
+		var userID uuid.UUID
+		apiKey, ok := httpmw.APIKeyOptional(p.Request)
+		if !ok {
+			userID = apiKey.UserID
+		}
+		// If no apiKey identified, we're probably tracking an anonymous
+		// action such as login.
+
 		err = p.Audit.Export(ctx, database.AuditLog{
 			ID:               uuid.New(),
 			Time:             database.Now(),
-			UserID:           httpmw.APIKey(p.Request).UserID,
+			UserID:           userID,
 			Ip:               ip,
 			UserAgent:        p.Request.UserAgent(),
 			ResourceType:     either(req.Old, req.New, ResourceType[T]),

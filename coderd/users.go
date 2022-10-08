@@ -886,6 +886,17 @@ func (api *API) postLogin(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditor := *api.Auditor.Load()
+	aReq, commitAudit := audit.InitRequest[database.User](rw, &audit.RequestParams{
+		Audit:   auditor,
+		Log:     api.Logger,
+		Request: r,
+		Action:  database.AuditActionLogin,
+	})
+	aReq.Old = user
+	aReq.New = user
+	defer commitAudit()
+
 	// If the user doesn't exist, it will be a default struct.
 	equal, err := userpassword.Compare(string(user.HashedPassword), loginWithPassword.Password)
 	if err != nil {
