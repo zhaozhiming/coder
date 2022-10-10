@@ -1,12 +1,13 @@
 -- name: InsertLicense :one
 INSERT INTO
 	licenses (
+	id,
 	uploaded_at,
 	jwt,
 	exp
 )
 VALUES
-	($1, $2, $3) RETURNING *;
+	($1, $2, $3, $4) RETURNING *;
 
 -- name: GetLicenses :many
 SELECT *

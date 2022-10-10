@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type AddLicenseRequest struct {
@@ -13,7 +15,7 @@ type AddLicenseRequest struct {
 }
 
 type License struct {
-	ID         int32     `json:"id"`
+	ID         uuid.UUID `json:"id"`
 	UploadedAt time.Time `json:"uploaded_at"`
 	// Claims are the JWT claims asserted by the license.  Here we use
 	// a generic string map to ensure that all data from the server is
@@ -52,8 +54,8 @@ func (c *Client) Licenses(ctx context.Context) ([]License, error) {
 	return licenses, d.Decode(&licenses)
 }
 
-func (c *Client) DeleteLicense(ctx context.Context, id int32) error {
-	res, err := c.Request(ctx, http.MethodDelete, fmt.Sprintf("/api/v2/licenses/%d", id), nil)
+func (c *Client) DeleteLicense(ctx context.Context, id uuid.UUID) error {
+	res, err := c.Request(ctx, http.MethodDelete, fmt.Sprintf("/api/v2/licenses/%s", id), nil)
 	if err != nil {
 		return err
 	}

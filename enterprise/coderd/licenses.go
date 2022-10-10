@@ -9,12 +9,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog"
@@ -76,8 +76,23 @@ func (api *API) postLicense(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expTime := time.Unix(int64(exp), 0)
+	jti, ok := claims["jti"].(string)
+	if !ok {
+		// TODO: Remove this in December!
+		// This is to support a few legacy licenses that weren't generated with IDs.
+		jti = uuid.NewString()
+	}
+	id, err := uuid.Parse(jti)
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "Invalid license",
+			Detail:  "id claim isn't a valid uuid",
+		})
+		return
+	}
 
 	dl, err := api.Database.InsertLicense(ctx, database.InsertLicenseParams{
+		ID:         id,
 		UploadedAt: database.Now(),
 		JWT:        addLicense.License,
 		Exp:        expTime,
@@ -146,17 +161,14 @@ func (api *API) deleteLicense(rw http.ResponseWriter, r *http.Request) {
 		httpapi.Forbidden(rw)
 		return
 	}
-
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseInt(idStr, 10, 32)
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusNotFound, codersdk.Response{
-			Message: "License ID must be an integer",
+			Message: "License ID must be a UUID",
 		})
 		return
 	}
-
-	_, err = api.Database.DeleteLicense(ctx, int32(id))
+	_, err = api.Database.DeleteLicense(ctx, id)
 	if xerrors.Is(err, sql.ErrNoRows) {
 		httpapi.Write(ctx, rw, http.StatusNotFound, codersdk.Response{
 			Message: "Unknown license ID",

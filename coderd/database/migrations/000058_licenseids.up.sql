@@ -1,0 +1,3 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+ALTER TABLE licenses DROP COLUMN id;
+ALTER TABLE licenses ADD COLUMN id uuid NOT NULL DEFAULT uuid_generate_v4() UNIQUE;

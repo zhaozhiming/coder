@@ -99,8 +99,7 @@ type data struct {
 	workspaces                     []database.Workspace
 	licenses                       []database.License
 
-	deploymentID  string
-	lastLicenseID int32
+	deploymentID string
 }
 
 // InTx doesn't rollback data properly for in-memory yet.
@@ -2593,12 +2592,11 @@ func (q *fakeQuerier) InsertLicense(
 	defer q.mutex.Unlock()
 
 	l := database.License{
-		ID:         q.lastLicenseID + 1,
+		ID:         arg.ID,
 		UploadedAt: arg.UploadedAt,
 		JWT:        arg.JWT,
 		Exp:        arg.Exp,
 	}
-	q.lastLicenseID = l.ID
 	q.licenses = append(q.licenses, l)
 	return l, nil
 }
@@ -2608,7 +2606,7 @@ func (q *fakeQuerier) GetLicenses(_ context.Context) ([]database.License, error)
 	defer q.mutex.RUnlock()
 
 	results := append([]database.License{}, q.licenses...)
-	sort.Slice(results, func(i, j int) bool { return results[i].ID < results[j].ID })
+	sort.Slice(results, func(i, j int) bool { return results[i].UploadedAt.Before(results[j].UploadedAt) })
 	return results, nil
 }
 
@@ -2623,11 +2621,11 @@ func (q *fakeQuerier) GetUnexpiredLicenses(_ context.Context) ([]database.Licens
 			results = append(results, l)
 		}
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ID < results[j].ID })
+	sort.Slice(results, func(i, j int) bool { return results[i].UploadedAt.Before(results[j].UploadedAt) })
 	return results, nil
 }
 
-func (q *fakeQuerier) DeleteLicense(_ context.Context, id int32) (int32, error) {
+func (q *fakeQuerier) DeleteLicense(_ context.Context, id uuid.UUID) (uuid.UUID, error) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
@@ -2638,7 +2636,7 @@ func (q *fakeQuerier) DeleteLicense(_ context.Context, id int32) (int32, error) 
 			return id, nil
 		}
 	}
-	return 0, sql.ErrNoRows
+	return uuid.Nil, sql.ErrNoRows
 }
 
 func (q *fakeQuerier) GetUserLinkByLinkedID(_ context.Context, id string) (database.UserLink, error) {

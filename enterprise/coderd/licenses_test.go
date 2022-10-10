@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
@@ -127,7 +128,7 @@ func TestDeleteLicense(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
 		defer cancel()
 
-		err := client.DeleteLicense(ctx, 1)
+		err := client.DeleteLicense(ctx, uuid.New())
 		errResp := &codersdk.Error{}
 		if xerrors.As(err, &errResp) {
 			assert.Equal(t, 404, errResp.StatusCode())

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -287,7 +288,7 @@ func (s *fakeLicenseAPI) postLicense(rw http.ResponseWriter, r *http.Request) {
 	assert.Equal(s.t, "test.jwt.sig", req.License)
 
 	resp := codersdk.License{
-		ID:         1,
+		ID:         uuid.New(),
 		UploadedAt: time.Now(),
 		Claims: map[string]interface{}{
 			"h1": "claim1",
@@ -305,7 +306,7 @@ func (s *fakeLicenseAPI) postLicense(rw http.ResponseWriter, r *http.Request) {
 func (s *fakeLicenseAPI) licenses(rw http.ResponseWriter, _ *http.Request) {
 	resp := []codersdk.License{
 		{
-			ID:         1,
+			ID:         uuid.New(),
 			UploadedAt: time.Now(),
 			Claims: map[string]interface{}{
 				"h1": "claim1",
@@ -316,7 +317,7 @@ func (s *fakeLicenseAPI) licenses(rw http.ResponseWriter, _ *http.Request) {
 			},
 		},
 		{
-			ID:         5,
+			ID:         uuid.New(),
 			UploadedAt: time.Now(),
 			Claims: map[string]interface{}{
 				"h2": "claim2",

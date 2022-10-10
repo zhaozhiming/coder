@@ -796,7 +796,7 @@ type ParameterSchema struct {
 }
 
 type License struct {
-	ID         int32     `json:"id"`
+	ID         uuid.UUID `json:"id"`
 	UploadedAt time.Time `json:"uploaded_at"`
 	JWT        string    `json:"jwt"`
 	Exp        time.Time `json:"exp"`

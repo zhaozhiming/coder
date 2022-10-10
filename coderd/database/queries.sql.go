@@ -814,14 +814,14 @@ WHERE id = $1
 RETURNING id
 `
 
-func (q *sqlQuerier) DeleteLicense(ctx context.Context, id int32) (int32, error) {
+func (q *sqlQuerier) DeleteLicense(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
 	row := q.db.QueryRowContext(ctx, deleteLicense, id)
 	err := row.Scan(&id)
 	return id, err
 }
 
 const getLicenses = `-- name: GetLicenses :many
-SELECT id, uploaded_at, jwt, exp
+SELECT uploaded_at, jwt, exp, id
 FROM licenses
 ORDER BY (id)
 `
@@ -836,10 +836,10 @@ func (q *sqlQuerier) GetLicenses(ctx context.Context) ([]License, error) {
 	for rows.Next() {
 		var i License
 		if err := rows.Scan(
-			&i.ID,
 			&i.UploadedAt,
 			&i.JWT,
 			&i.Exp,
+			&i.ID,
 		); err != nil {
 			return nil, err
 		}
@@ -855,7 +855,7 @@ func (q *sqlQuerier) GetLicenses(ctx context.Context) ([]License, error) {
 }
 
 const getUnexpiredLicenses = `-- name: GetUnexpiredLicenses :many
-SELECT id, uploaded_at, jwt, exp
+SELECT uploaded_at, jwt, exp, id
 FROM licenses
 WHERE exp > NOW()
 ORDER BY (id)
@@ -871,10 +871,10 @@ func (q *sqlQuerier) GetUnexpiredLicenses(ctx context.Context) ([]License, error
 	for rows.Next() {
 		var i License
 		if err := rows.Scan(
-			&i.ID,
 			&i.UploadedAt,
 			&i.JWT,
 			&i.Exp,
+			&i.ID,
 		); err != nil {
 			return nil, err
 		}
@@ -892,28 +892,35 @@ func (q *sqlQuerier) GetUnexpiredLicenses(ctx context.Context) ([]License, error
 const insertLicense = `-- name: InsertLicense :one
 INSERT INTO
 	licenses (
+	id,
 	uploaded_at,
 	jwt,
 	exp
 )
 VALUES
-	($1, $2, $3) RETURNING id, uploaded_at, jwt, exp
+	($1, $2, $3, $4) RETURNING uploaded_at, jwt, exp, id
 `
 
 type InsertLicenseParams struct {
+	ID         uuid.UUID `db:"id" json:"id"`
 	UploadedAt time.Time `db:"uploaded_at" json:"uploaded_at"`
 	JWT        string    `db:"jwt" json:"jwt"`
 	Exp        time.Time `db:"exp" json:"exp"`
 }
 
 func (q *sqlQuerier) InsertLicense(ctx context.Context, arg InsertLicenseParams) (License, error) {
-	row := q.db.QueryRowContext(ctx, insertLicense, arg.UploadedAt, arg.JWT, arg.Exp)
+	row := q.db.QueryRowContext(ctx, insertLicense,
+		arg.ID,
+		arg.UploadedAt,
+		arg.JWT,
+		arg.Exp,
+	)
 	var i License
 	err := row.Scan(
-		&i.ID,
 		&i.UploadedAt,
 		&i.JWT,
 		&i.Exp,
+		&i.ID,
 	)
 	return i, err
 }

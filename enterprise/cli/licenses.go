@@ -6,9 +6,9 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
@@ -159,11 +159,12 @@ func licenseDelete() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := strconv.ParseInt(args[0], 10, 32)
+			id, err := uuid.Parse(args[0])
 			if err != nil {
-				return xerrors.Errorf("license ID must be an integer: %s", args[0])
+				return xerrors.Errorf("license ID must be a uuid: %s", args[0])
 			}
-			err = client.DeleteLicense(cmd.Context(), int32(id))
+
+			err = client.DeleteLicense(cmd.Context(), id)
 			if err != nil {
 				return err
 			}

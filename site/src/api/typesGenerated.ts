@@ -283,7 +283,7 @@ export interface Healthcheck {
 
 // From codersdk/licenses.go
 export interface License {
-  readonly id: number
+  readonly id: string
   readonly uploaded_at: string
   // eslint-disable-next-line
   readonly claims: Record<string, any>
