@@ -6,6 +6,23 @@ import (
 	"net/http"
 )
 
+type EnterpriseFeatures struct {
+	Warnings       []string `json:"warnings"`
+	UserLimit      bool     `json:"user_limit"`
+	AuditLog       bool     `json:"audit_log"`
+	BrowserOnly    bool     `json:"browser_only"`
+	SCIM           bool     `json:"scim"`
+	WorkspaceQuota bool     `json:"workspace_quota"`
+	TemplateRBAC   bool     `json:"template_rbac"`
+}
+
+type EnterpriseFeature struct {
+	Name        string      `json:"name"`
+	Entitlement Entitlement `json:"entitlement"`
+	// Default     bool        `json:"default"`
+	Enabled bool `json:"enabled"`
+}
+
 type Entitlement string
 
 const (
@@ -57,5 +74,18 @@ func (c *Client) Entitlements(ctx context.Context) (Entitlements, error) {
 		return Entitlements{}, readBodyAsError(res)
 	}
 	var ent Entitlements
+	return ent, json.NewDecoder(res.Body).Decode(&ent)
+}
+
+func (c *Client) EnterpriseFeatures(ctx context.Context) (EnterpriseFeatures, error) {
+	res, err := c.Request(ctx, http.MethodGet, "/api/v2/features", nil)
+	if err != nil {
+		return EnterpriseFeatures{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return EnterpriseFeatures{}, readBodyAsError(res)
+	}
+	var ent EnterpriseFeatures
 	return ent, json.NewDecoder(res.Body).Decode(&ent)
 }
