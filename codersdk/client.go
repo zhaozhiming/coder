@@ -21,9 +21,10 @@ const (
 	// SessionTokenKey represents the name of the cookie or query parameter the API key is stored in.
 	SessionTokenKey = "coder_session_token"
 	// SessionCustomHeader is the custom header to use for authentication.
-	SessionCustomHeader = "Coder-Session-Token"
-	OAuth2StateKey      = "oauth_state"
-	OAuth2RedirectKey   = "oauth_redirect"
+	SessionCustomHeader      = "Coder-Session-Token"
+	OAuth2StateKey           = "oauth_state"
+	OAuth2RedirectKey        = "oauth_redirect"
+	OAuth2GitAuthProviderKey = "oauth_git_auth_provider"
 )
 
 // New creates a Coder client for the provided URL.

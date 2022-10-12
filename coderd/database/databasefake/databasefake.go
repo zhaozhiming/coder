@@ -16,6 +16,7 @@ import (
 	"github.com/coder/coder/coderd/database"
 	"github.com/coder/coder/coderd/rbac"
 	"github.com/coder/coder/coderd/util/slice"
+	"github.com/coder/coder/codersdk"
 )
 
 // New returns an in-memory fake of the database.
@@ -78,6 +79,7 @@ type data struct {
 	organizationMembers []database.OrganizationMember
 	users               []database.User
 	userLinks           []database.UserLink
+	userLinkRequests    []database.UserLinkRequest
 
 	// New tables
 	agentStats                     []database.AgentStat
@@ -137,6 +139,7 @@ func (q *fakeQuerier) AcquireProvisionerJob(_ context.Context, arg database.Acqu
 	}
 	return database.ProvisionerJob{}, sql.ErrNoRows
 }
+
 func (*fakeQuerier) DeleteOldAgentStats(_ context.Context) error {
 	// no-op
 	return nil
@@ -2614,6 +2617,21 @@ func (q *fakeQuerier) DeleteLicense(_ context.Context, id int32) (int32, error) 
 	return 0, sql.ErrNoRows
 }
 
+func (q *fakeQuerier) GetUserLinkByGitAuthRequest(_ context.Context, params database.GetUserLinkByGitAuthRequestParams) (database.UserLink, error) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
+	for _, link := range q.userLinks {
+		if link.LoginUser != params.LoginUser && !(link.DefaultLoginUser && params.LoginUser == "") {
+			continue
+		}
+		if link.LoginUrl == params.LoginUrl {
+			return link, nil
+		}
+	}
+	return database.UserLink{}, sql.ErrNoRows
+}
+
 func (q *fakeQuerier) GetUserLinkByLinkedID(_ context.Context, id string) (database.UserLink, error) {
 	q.mutex.RLock()
 	defer q.mutex.RUnlock()
@@ -2689,4 +2707,89 @@ func (q *fakeQuerier) UpdateUserLink(_ context.Context, params database.UpdateUs
 	}
 
 	return database.UserLink{}, sql.ErrNoRows
+}
+
+func (q *fakeQuerier) GetUserLinkRequestByIDAndUserID(_ context.Context, params database.GetUserLinkRequestByIDAndUserIDParams) (database.UserLinkRequest, error) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
+	for _, link := range q.userLinkRequests {
+		if link.ID == params.ID && link.UserID == params.UserID {
+			return link, nil
+		}
+	}
+	return database.UserLinkRequest{}, sql.ErrNoRows
+}
+
+func (q *fakeQuerier) GetUserLinkRequestByIDAndAgentID(_ context.Context, params database.GetUserLinkRequestByIDAndAgentIDParams) (database.UserLinkRequest, error) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
+	for _, link := range q.userLinkRequests {
+		if link.ID == params.ID && link.AgentID == params.AgentID {
+			return link, nil
+		}
+	}
+	return database.UserLinkRequest{}, sql.ErrNoRows
+}
+
+// InsertUserLinkRequest inserts a new user link request.
+func (q *fakeQuerier) InsertUserLinkRequest(_ context.Context, args database.InsertUserLinkRequestParams) (database.UserLinkRequest, error) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
+	//nolint:gosimple
+	link := database.UserLinkRequest{
+		AgentID: args.AgentID,
+		UserID:  args.UserID,
+	}
+
+	q.userLinkRequests = append(q.userLinkRequests, link)
+
+	return link, nil
+}
+
+func (q *fakeQuerier) GetUserLinkRequestsByUserID(_ context.Context, arg database.GetUserLinkRequestsByUserIDParams) ([]database.UserLinkRequest, error) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
+	var reqs []database.UserLinkRequest
+	for _, link := range q.userLinkRequests {
+		if link.UserID == arg.UserID {
+			switch arg.Status {
+			case codersdk.GitAuthRequestStatusAll:
+				reqs = append(reqs, link)
+			case codersdk.GitAuthRequestStatusResolved:
+				if link.Resolved {
+					reqs = append(reqs, link)
+				}
+			case codersdk.GitAuthRequestStatusPending:
+				if !link.Resolved && !link.ExpiresAt.Before(time.Now()) {
+					reqs = append(reqs, link)
+				}
+			case codersdk.GitAuthRequestStatusExpired:
+				if !link.Resolved && link.ExpiresAt.Before(time.Now()) {
+					reqs = append(reqs, link)
+				}
+			}
+		}
+	}
+	return reqs, nil
+}
+
+func (q *fakeQuerier) UpdateUserLinkRequestByID(_ context.Context, arg database.UpdateUserLinkRequestByIDParams) error {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
+	for i, link := range q.userLinkRequests {
+		if link.ID == arg.ID {
+			link.Resolved = arg.Resolved
+			link.UpdatedAt = arg.UpdatedAt
+
+			q.userLinkRequests[i] = link
+			return nil
+		}
+	}
+
+	return sql.ErrNoRows
 }

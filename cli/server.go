@@ -96,12 +96,14 @@ func Server(newAPI func(context.Context, *coderd.Options) (*coderd.API, error)) 
 		oauth2GithubAllowedTeams         []string
 		oauth2GithubAllowSignups         bool
 		oauth2GithubEnterpriseBaseURL    string
+		oauth2GithubGitProviders         []string
 		oidcAllowSignups                 bool
 		oidcClientID                     string
 		oidcClientSecret                 string
 		oidcEmailDomain                  string
 		oidcIssuerURL                    string
 		oidcScopes                       []string
+		oidcGitProviders                 []string
 		tailscaleEnable                  bool
 		telemetryEnable                  bool
 		telemetryTraceEnable             bool
@@ -126,11 +128,33 @@ func Server(newAPI func(context.Context, *coderd.Options) (*coderd.API, error)) 
 	root := &cobra.Command{
 		Use:   "server",
 		Short: "Start a Coder server",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			printLogo(cmd, spooky)
 			logger := slog.Make(sloghuman.Sink(cmd.ErrOrStderr()))
 			if verbose {
 				logger = logger.Leveled(slog.LevelDebug)
+			}
+
+			// Parse git providers early for quick feedback on error.
+			gitProviders := make(map[string]gitProviderConfig)
+			for _, p := range []struct {
+				flag      string
+				typ       string
+				providers []string
+			}{
+				{"--oauth2-github-git-providers", "github", oauth2GithubGitProviders},
+				{"--oidc-git-providers", "oidc", oidcGitProviders},
+			} {
+				providers, err := parseGitProviderConfig(p.typ, p.providers...)
+				if err != nil {
+					return xerrors.Errorf("parse git provider config from %s: %w", p.flag, err)
+				}
+				for _, gp := range providers {
+					if _, ok := gitProviders[gp.Name]; ok {
+						return xerrors.Errorf("duplicate git provider name %q", gp.Name)
+					}
+					gitProviders[gp.Name] = gp
+				}
 			}
 
 			// Main command context for managing cancellation
@@ -372,7 +396,7 @@ func Server(newAPI func(context.Context, *coderd.Options) (*coderd.API, error)) 
 			}
 
 			if oauth2GithubClientSecret != "" {
-				options.GithubOAuth2Config, err = configureGithubOAuth2(accessURLParsed, oauth2GithubClientID, oauth2GithubClientSecret, oauth2GithubAllowSignups, oauth2GithubAllowedOrganizations, oauth2GithubAllowedTeams, oauth2GithubEnterpriseBaseURL)
+				options.GithubOAuth2Config, err = configureGithubOAuth2(accessURLParsed, oauth2GithubClientID, oauth2GithubClientSecret, oauth2GithubAllowSignups, oauth2GithubAllowedOrganizations, oauth2GithubAllowedTeams, nil, oauth2GithubEnterpriseBaseURL)
 				if err != nil {
 					return xerrors.Errorf("configure github oauth2: %w", err)
 				}
@@ -380,7 +404,7 @@ func Server(newAPI func(context.Context, *coderd.Options) (*coderd.API, error)) 
 
 			if oidcClientSecret != "" {
 				if oidcClientID == "" {
-					return xerrors.Errorf("OIDC client ID be set!")
+					return xerrors.Errorf("OIDC client ID must be set!")
 				}
 				if oidcIssuerURL == "" {
 					return xerrors.Errorf("OIDC issuer URL must be set!")
@@ -407,6 +431,55 @@ func Server(newAPI func(context.Context, *coderd.Options) (*coderd.API, error)) 
 					}),
 					EmailDomain:  oidcEmailDomain,
 					AllowSignups: oidcAllowSignups,
+				}
+			}
+
+			options.GitProviderConfigs = make(coderd.GitProviderConfigs)
+			for _, gp := range gitProviders {
+				switch gp.Type {
+				case "github":
+					baseURL := gp.BaseURL.String()
+					if gp.BaseURL.Host == "github.com" {
+						baseURL = ""
+					}
+					// TODO(mafredri): Org/team limits?
+					c, err := configureGithubOAuth2(accessURLParsed, gp.ClientID, gp.ClientSecret, false, nil, nil, gp.Scopes, baseURL)
+					if err != nil {
+						return xerrors.Errorf("configure github oauth2: %w", err)
+					}
+					options.GitProviderConfigs[gp.Name] = coderd.GitProviderConfig{
+						Name:   gp.Name,
+						URL:    gp.BaseURL.String(),
+						Github: c,
+					}
+				case "oidc":
+					oidcProvider, err := oidc.NewProvider(ctx, gp.IssuerURL.String())
+					if err != nil {
+						return xerrors.Errorf("configure oidc provider: %w", err)
+					}
+					redirectURL, err := accessURLParsed.Parse("/api/v2/users/oidc/callback")
+					if err != nil {
+						return xerrors.Errorf("parse oidc oauth callback url: %w", err)
+					}
+					// TODO(mafredri): Org/team limits?
+					c := &coderd.OIDCConfig{
+						OAuth2Config: &oauth2.Config{
+							ClientID:     gp.ClientID,
+							ClientSecret: gp.ClientSecret,
+							RedirectURL:  redirectURL.String(),
+							Endpoint:     oidcProvider.Endpoint(),
+							Scopes:       gp.Scopes,
+						},
+						Verifier: oidcProvider.Verifier(&oidc.Config{
+							ClientID: gp.ClientID,
+						}),
+						AllowSignups: false,
+					}
+					options.GitProviderConfigs[gp.Name] = coderd.GitProviderConfig{
+						Name: gp.Name,
+						URL:  gp.BaseURL.String(),
+						OIDC: c,
+					}
 				}
 			}
 
@@ -817,6 +890,10 @@ func Server(newAPI func(context.Context, *coderd.Options) (*coderd.API, error)) 
 		"Whether new users can sign up with GitHub.")
 	cliflag.StringVarP(root.Flags(), &oauth2GithubEnterpriseBaseURL, "oauth2-github-enterprise-base-url", "", "CODER_OAUTH2_GITHUB_ENTERPRISE_BASE_URL", "",
 		"Base URL of a GitHub Enterprise deployment to use for Login with GitHub.")
+	// Use a custom delimiter since input contains commas (this allows us to
+	// support multiple providers in env var).
+	cliflag.StringArrayDelimiterVarP(root.Flags(), &oauth2GithubGitProviders, "oauth2-github-git-provider", "", "CODER_OAUTH2_GITHUB_GIT_PROVIDER", nil, ";",
+		"GitHub OAuth2 provider to use for Git authentication.")
 	cliflag.BoolVarP(root.Flags(), &oidcAllowSignups, "oidc-allow-signups", "", "CODER_OIDC_ALLOW_SIGNUPS", true,
 		"Whether new users can sign up with OIDC.")
 	cliflag.StringVarP(root.Flags(), &oidcClientID, "oidc-client-id", "", "CODER_OIDC_CLIENT_ID", "",
@@ -829,6 +906,10 @@ func Server(newAPI func(context.Context, *coderd.Options) (*coderd.API, error)) 
 		"Issuer URL to use for Login with OIDC.")
 	cliflag.StringArrayVarP(root.Flags(), &oidcScopes, "oidc-scopes", "", "CODER_OIDC_SCOPES", []string{oidc.ScopeOpenID, "profile", "email"},
 		"Scopes to grant when authenticating with OIDC.")
+	// Use a custom delimiter since input contains commas (this allows us to
+	// support multiple providers in env var).
+	cliflag.StringArrayDelimiterVarP(root.Flags(), &oidcGitProviders, "oidc-git-provider", "", "CODER_OIDC_GIT_PROVIDER", nil, ";",
+		"OIDC provider to use for Git authentication.")
 	cliflag.BoolVarP(root.Flags(), &tailscaleEnable, "tailscale", "", "CODER_TAILSCALE", true,
 		"Specifies whether Tailscale networking is used for web applications and terminals.")
 	_ = root.Flags().MarkHidden("tailscale")
@@ -887,9 +968,7 @@ func Server(newAPI func(context.Context, *coderd.Options) (*coderd.API, error)) 
 // but undesired behavior of url.Parse by prepending a scheme if one does not
 // exist so that the URL does not get parsed improprely.
 func parseURL(ctx context.Context, u string) (*url.URL, error) {
-	var (
-		hasScheme = strings.HasPrefix(u, "http:") || strings.HasPrefix(u, "https:")
-	)
+	hasScheme := strings.HasPrefix(u, "http:") || strings.HasPrefix(u, "https:")
 
 	if !hasScheme {
 		// Append a scheme if it doesn't have one. Otherwise the hostname
@@ -1118,7 +1197,7 @@ func configureTLS(listener net.Listener, tlsMinVersion, tlsClientAuth, tlsCertFi
 	return tls.NewListener(listener, tlsConfig), nil
 }
 
-func configureGithubOAuth2(accessURL *url.URL, clientID, clientSecret string, allowSignups bool, allowOrgs []string, rawTeams []string, enterpriseBaseURL string) (*coderd.GithubOAuth2Config, error) {
+func configureGithubOAuth2(accessURL *url.URL, clientID, clientSecret string, allowSignups bool, allowOrgs []string, rawTeams []string, scopes []string, enterpriseBaseURL string) (*coderd.GithubOAuth2Config, error) {
 	redirectURL, err := accessURL.Parse("/api/v2/users/oauth2/github/callback")
 	if err != nil {
 		return nil, xerrors.Errorf("parse github oauth callback url: %w", err)
@@ -1161,17 +1240,27 @@ func configureGithubOAuth2(accessURL *url.URL, clientID, clientSecret string, al
 		}
 	}
 
+	if len(scopes) == 0 {
+		scopes = []string{
+			"read:user",
+			"read:org",
+			"user:email",
+		}
+	}
+	// TODO(mafredri): Temporary, oauth flow always depends on these details.
+	// scopes = append([]string{
+	// 	"read:user",
+	// 	"read:org",
+	// 	"user:email",
+	// }, scopes...)
+
 	return &coderd.GithubOAuth2Config{
 		OAuth2Config: &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			Endpoint:     endpoint,
 			RedirectURL:  redirectURL.String(),
-			Scopes: []string{
-				"read:user",
-				"read:org",
-				"user:email",
-			},
+			Scopes:       scopes,
 		},
 		AllowSignups:       allowSignups,
 		AllowOrganizations: allowOrgs,
@@ -1319,4 +1408,103 @@ func startBuiltinPostgres(ctx context.Context, cfg config.Root, logger slog.Logg
 		return "", nil, xerrors.Errorf("Failed to start built-in PostgreSQL. Optionally, specify an external deployment with `--postgres-url`: %w", err)
 	}
 	return connectionURL, ep.Stop, nil
+}
+
+type gitProviderConfig struct {
+	Type         string   `json:"type"` // "github", "github-app", "oidc"
+	Name         string   `json:"name"` // "github"
+	ClientID     string   `json:"client_id"`
+	ClientSecret string   `json:"client_secret"`
+	Certificate  []byte   `json:"certificate"` // For GitHub App.
+	BaseURL      *url.URL `json:"base_url"`    // For OAuth2, e.g. "https://github.com"
+	IssuerURL    *url.URL `json:"issuer_url"`  // For OIDC.
+	Scopes       []string `json:"scopes"`      // "user:read|repo"
+}
+
+func (c *gitProviderConfig) Check() error {
+	switch c.Type {
+	case "github":
+	case "oidc":
+		if c.IssuerURL == nil {
+			return xerrors.New(`"issuer_url" is required for OIDC`)
+		}
+	}
+	if c.Name == "" {
+		return xerrors.New(`"name" must be set`)
+	}
+	if c.ClientID == "" {
+		return xerrors.New(`"client_id" must be set`)
+	}
+	if c.ClientSecret == "" {
+		return xerrors.New(`"client_secret" must be set`)
+	}
+	if c.BaseURL == nil {
+		// Required to identify git provider for logins.
+		// TODO(mafredri): Could perhaps infer via OAuth2 endpoint: "if has prefix then".
+		return xerrors.New(`"base_url" must be set`)
+	}
+	if len(c.Scopes) == 0 {
+		return xerrors.New(`"scopes" must be set`)
+	}
+	return nil
+}
+
+// parseGitProviderConfig parses user input into gitProviderConfig and validates
+// the result.
+func parseGitProviderConfig(typ string, input ...string) (providers []gitProviderConfig, err error) {
+	for _, s := range input {
+		provider := gitProviderConfig{Type: typ}
+		if typ == "github" {
+			// For GitHub, allow base URL to be inferred.
+			provider.BaseURL, err = url.Parse("https://github.com")
+			if err != nil {
+				return nil, xerrors.Errorf("error converting github.com to *url.URL: %w", err)
+			}
+		}
+
+		for _, kvs := range strings.Split(s, ",") {
+			kv := strings.SplitN(kvs, "=", 2)
+			if len(kv) != 2 {
+				return nil, xerrors.Errorf("missing value in \"key=value\": %q", kvs)
+			}
+			key := strings.TrimSpace(kv[0])
+			val := strings.TrimSpace(kv[1])
+			switch key {
+			case "name":
+				provider.Name = val
+			case "client_id":
+				provider.ClientID = val
+			case "client_secret":
+				provider.ClientSecret = val
+			case "base_url":
+				u, err := url.Parse(val)
+				if err != nil {
+					return nil, xerrors.Errorf("invalid \"base_url\": %w", err)
+				}
+				provider.BaseURL = u
+			case "issuer_url":
+				u, err := url.Parse(val)
+				if err != nil {
+					return nil, xerrors.Errorf("invalid \"issuer_url\": %w", err)
+				}
+				provider.IssuerURL = u
+			case "certificate_path":
+				provider.Certificate, err = os.ReadFile(val)
+				if err != nil {
+					return nil, xerrors.Errorf("read \"certificate\" failed: %w", err)
+				}
+			case "scopes":
+				provider.Scopes = strings.Split(val, "|")
+			default:
+				return nil, xerrors.Errorf("unknown key %q: %q", key, kvs)
+			}
+		}
+
+		if err := provider.Check(); err != nil {
+			return nil, xerrors.Errorf("bad provider configuration: %q: %w", s, err)
+		}
+
+		providers = append(providers, provider)
+	}
+	return providers, nil
 }

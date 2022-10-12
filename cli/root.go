@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	"golang.org/x/exp/slices"
 	"golang.org/x/xerrors"
 
 	"github.com/charmbracelet/lipgloss"
@@ -22,6 +24,7 @@ import (
 	"github.com/coder/coder/cli/cliflag"
 	"github.com/coder/coder/cli/cliui"
 	"github.com/coder/coder/cli/config"
+	"github.com/coder/coder/cli/gitaskpass"
 	"github.com/coder/coder/coderd"
 	"github.com/coder/coder/codersdk"
 )
@@ -66,6 +69,7 @@ func init() {
 
 func Core() []*cobra.Command {
 	return []*cobra.Command{
+		askpass(),
 		configSSH(),
 		create(),
 		deleteWorkspace(),
@@ -77,15 +81,15 @@ func Core() []*cobra.Command {
 		parameters(),
 		portForward(),
 		publickey(),
+		rename(),
 		resetPassword(),
 		schedules(),
 		show(),
-		ssh(),
 		speedtest(),
+		ssh(),
 		start(),
 		state(),
 		stop(),
-		rename(),
 		templates(),
 		update(),
 		users(),
@@ -102,13 +106,40 @@ func AGPL() []*cobra.Command {
 }
 
 func Root(subcommands []*cobra.Command) *cobra.Command {
+	isAskpass := false
+
 	cmd := &cobra.Command{
 		Use:           "coder",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Long: `Coder — A tool for provisioning self-hosted development environments with Terraform.
 `,
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Use Args and RunE to trigger askpass when invoked by git.
+		// Note that Args only runs when no subcommand is invoked and
+		// thus isAskpass will never be set in other scenarios.
+		//
+		// TODO(mafredri): Consider replacing this with `askpass.sh` to
+		// invoke the subcommand.
+		Args: func(cmd *cobra.Command, args []string) error {
+			if gitaskpass.CheckCommand(args, os.Environ()) {
+				isAskpass = true
+				return nil
+			}
+			return cobra.NoArgs(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAskpass {
+				// Note that we're not actually validating command
+				// arguments here or other command tweaks.
+				err := askpass().RunE(cmd, args)
+				if err != nil {
+					return askpassError{err: err}
+				}
+				return nil
+			}
+			return cmd.Help()
+		},
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			if cliflag.IsSetBool(cmd, varNoVersionCheck) &&
 				cliflag.IsSetBool(cmd, varNoFeatureWarning) {
 				return
@@ -122,9 +153,12 @@ func Root(subcommands []*cobra.Command) *cobra.Command {
 			// agent is skipped because these checks use the global coder config
 			// and not the agent URL and token from the environment.
 			//
-			// gitssh is skipped because it's usually not called by users
-			// directly.
-			if cmd.Name() == "login" || cmd.Name() == "server" || cmd.Name() == "agent" || cmd.Name() == "gitssh" {
+			// askpass and gitssh is skipped because they're usually not called
+			// by users directly.
+			if slices.Contains([]string{"login", "server", "agent", "askpass", "gitssh"}, cmd.Name()) {
+				return
+			}
+			if isAskpass {
 				return
 			}
 
@@ -165,7 +199,7 @@ func Root(subcommands []*cobra.Command) *cobra.Command {
 	}
 
 	cmd.AddCommand(subcommands...)
-	fixUnknownSubcommandError(cmd.Commands())
+	fixUnknownSubcommandError(cmd)
 
 	cmd.SetUsageTemplate(usageTemplate())
 
@@ -195,7 +229,7 @@ func Root(subcommands []*cobra.Command) *cobra.Command {
 // Example:
 //
 //	unknown command "bad" for "coder templates"
-func fixUnknownSubcommandError(commands []*cobra.Command) {
+func fixUnknownSubcommandError(commands ...*cobra.Command) {
 	for _, sc := range commands {
 		if sc.HasSubCommands() {
 			if sc.Run == nil && sc.RunE == nil {
@@ -212,7 +246,7 @@ func fixUnknownSubcommandError(commands []*cobra.Command) {
 				sc.Run = func(*cobra.Command, []string) {}
 			}
 
-			fixUnknownSubcommandError(sc.Commands())
+			fixUnknownSubcommandError(sc.Commands()...)
 		}
 	}
 }
@@ -513,10 +547,13 @@ func formatExamples(examples ...example) string {
 	return sb.String()
 }
 
+type askpassError struct{ err error }
+
+func (e askpassError) Error() string { return e.err.Error() }
+func (e askpassError) Unwrap() error { return e.err }
+
 // FormatCobraError colorizes and adds "--help" docs to cobra commands.
 func FormatCobraError(err error, cmd *cobra.Command) string {
-	helpErrMsg := fmt.Sprintf("Run '%s --help' for usage.", cmd.CommandPath())
-
 	var (
 		httpErr *codersdk.Error
 		output  strings.Builder
@@ -532,7 +569,11 @@ func FormatCobraError(err error, cmd *cobra.Command) string {
 		_, _ = fmt.Fprintln(&output, err.Error())
 	}
 
-	_, _ = fmt.Fprint(&output, helpErrMsg)
+	name := cmd.CommandPath()
+	if errors.As(err, &askpassError{}) {
+		name = "coder askpass"
+	}
+	_, _ = fmt.Fprintf(&output, "Run '%s --help' for usage.", name)
 
 	return cliui.Styles.Error.Render(output.String())
 }

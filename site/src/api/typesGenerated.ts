@@ -264,6 +264,26 @@ export interface GetAppHostResponse {
   readonly host: string
 }
 
+// From codersdk/git_auth.go
+export interface GitAuthRequestResponse {
+  readonly id: string
+  readonly user_id: string
+  readonly agent_id: string
+  readonly created_at: string
+  readonly updated_at: string
+  readonly expires_at: string
+  readonly provider: string[]
+  readonly login_user: string
+  readonly login_url: string
+  readonly resolved: boolean
+  readonly expired: boolean
+}
+
+// From codersdk/git_auth.go
+export interface GitAuthRequestsRequest {
+  readonly status: GitAuthRequestStatus
+}
+
 // From codersdk/gitsshkey.go
 export interface GitSSHKey {
   readonly user_id: string
@@ -574,6 +594,20 @@ export interface WorkspaceAgent {
   readonly latency?: Record<string, DERPRegion>
 }
 
+// From codersdk/git_auth.go
+export interface WorkspaceAgentGitAuthRequest {
+  readonly user: string
+  readonly url: string
+}
+
+// From codersdk/git_auth.go
+export interface WorkspaceAgentGitAuthResponse {
+  readonly request_id: string
+  readonly auth_url: string
+  readonly user?: string
+  readonly access_token?: string
+}
+
 // From codersdk/workspaceagents.go
 export interface WorkspaceAgentInstanceMetadata {
   readonly jail_orchestrator: string
@@ -677,6 +711,9 @@ export type BuildReason = "autostart" | "autostop" | "initiator"
 
 // From codersdk/features.go
 export type Entitlement = "entitled" | "grace_period" | "not_entitled"
+
+// From codersdk/git_auth.go
+export type GitAuthRequestStatus = "" | "expired" | "pending" | "resolved"
 
 // From codersdk/provisionerdaemons.go
 export type LogLevel = "debug" | "error" | "info" | "trace" | "warn"

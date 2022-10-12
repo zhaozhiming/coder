@@ -122,7 +122,8 @@ CREATE TABLE api_keys (
     login_type login_type NOT NULL,
     lifetime_seconds bigint DEFAULT 86400 NOT NULL,
     ip_address inet DEFAULT '0.0.0.0'::inet NOT NULL,
-    scope api_key_scope DEFAULT 'all'::public.api_key_scope NOT NULL
+    scope api_key_scope DEFAULT 'all'::public.api_key_scope NOT NULL,
+    login_url text DEFAULT ''::text NOT NULL
 );
 
 COMMENT ON COLUMN api_keys.hashed_secret IS 'hashed_secret contains a SHA256 hash of the key secret. This is considered a secret and MUST NOT be returned from the API as it is used for API key encryption in app proxying code.';
@@ -297,14 +298,61 @@ CREATE TABLE templates (
     icon character varying(256) DEFAULT ''::character varying NOT NULL
 );
 
+CREATE TABLE user_link_requests (
+    id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    agent_id uuid NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    provider text[] NOT NULL,
+    login_user text NOT NULL,
+    login_url text NOT NULL,
+    resolved boolean DEFAULT false NOT NULL
+);
+
+COMMENT ON TABLE user_link_requests IS 'User link requests are used to prompt for authentication (OAuth/OIDC) in the browser, e.g. by git askpass inside workspaces.';
+
+COMMENT ON COLUMN user_link_requests.id IS 'The unique ID of the request.';
+
+COMMENT ON COLUMN user_link_requests.user_id IS 'The ID of the user this request belongs to.';
+
+COMMENT ON COLUMN user_link_requests.agent_id IS 'The ID of the agent that created this request.';
+
+COMMENT ON COLUMN user_link_requests.created_at IS 'The time the request was created.';
+
+COMMENT ON COLUMN user_link_requests.updated_at IS 'The time the request was updated.';
+
+COMMENT ON COLUMN user_link_requests.expires_at IS 'The time at which this request expires, if unresolved.';
+
+COMMENT ON COLUMN user_link_requests.provider IS 'The auth provider that was matched for this request, can have multiple values in case of conflict.';
+
+COMMENT ON COLUMN user_link_requests.login_user IS 'The requested user for the login request, often empty.';
+
+COMMENT ON COLUMN user_link_requests.login_url IS 'The URL this login was requested for.';
+
+COMMENT ON COLUMN user_link_requests.resolved IS 'Resolved is set to true when the login is successful.';
+
 CREATE TABLE user_links (
     user_id uuid NOT NULL,
     login_type login_type NOT NULL,
     linked_id text DEFAULT ''::text NOT NULL,
     oauth_access_token text DEFAULT ''::text NOT NULL,
     oauth_refresh_token text DEFAULT ''::text NOT NULL,
-    oauth_expiry timestamp with time zone DEFAULT '0001-01-01 00:00:00+00'::timestamp with time zone NOT NULL
+    oauth_expiry timestamp with time zone DEFAULT '0001-01-01 00:00:00+00'::timestamp with time zone NOT NULL,
+    login_user text DEFAULT ''::text NOT NULL,
+    default_login_user boolean DEFAULT false NOT NULL,
+    login_url text DEFAULT ''::text NOT NULL,
+    scopes text[] DEFAULT '{}'::text[] NOT NULL
 );
+
+COMMENT ON COLUMN user_links.login_user IS 'The login user this link refers to (can be different from Coder user).';
+
+COMMENT ON COLUMN user_links.default_login_user IS 'Default login user indicates this link will be used when no specific user is requested.';
+
+COMMENT ON COLUMN user_links.login_url IS 'The login url links this entry to a specific provider.';
+
+COMMENT ON COLUMN user_links.scopes IS 'The current scopes available for this user link, can be used to verify if reauth is required to receive additional permissions.';
 
 CREATE TABLE users (
     id uuid NOT NULL,
@@ -471,8 +519,11 @@ ALTER TABLE ONLY template_versions
 ALTER TABLE ONLY templates
     ADD CONSTRAINT templates_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY user_link_requests
+    ADD CONSTRAINT user_link_requests_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY user_links
-    ADD CONSTRAINT user_links_pkey PRIMARY KEY (user_id, login_type);
+    ADD CONSTRAINT user_links_pkey PRIMARY KEY (user_id, login_type, login_user, login_url);
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
@@ -573,6 +624,12 @@ ALTER TABLE ONLY templates
 
 ALTER TABLE ONLY templates
     ADD CONSTRAINT templates_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY user_link_requests
+    ADD CONSTRAINT user_link_requests_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES workspace_agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY user_link_requests
+    ADD CONSTRAINT user_link_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY user_links
     ADD CONSTRAINT user_links_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;

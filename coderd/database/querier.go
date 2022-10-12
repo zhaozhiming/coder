@@ -72,8 +72,12 @@ type querier interface {
 	GetUserByEmailOrUsername(ctx context.Context, arg GetUserByEmailOrUsernameParams) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserCount(ctx context.Context) (int64, error)
+	GetUserLinkByGitAuthRequest(ctx context.Context, arg GetUserLinkByGitAuthRequestParams) (UserLink, error)
 	GetUserLinkByLinkedID(ctx context.Context, linkedID string) (UserLink, error)
 	GetUserLinkByUserIDLoginType(ctx context.Context, arg GetUserLinkByUserIDLoginTypeParams) (UserLink, error)
+	GetUserLinkRequestByIDAndAgentID(ctx context.Context, arg GetUserLinkRequestByIDAndAgentIDParams) (UserLinkRequest, error)
+	GetUserLinkRequestByIDAndUserID(ctx context.Context, arg GetUserLinkRequestByIDAndUserIDParams) (UserLinkRequest, error)
+	GetUserLinkRequestsByUserID(ctx context.Context, arg GetUserLinkRequestsByUserIDParams) ([]UserLinkRequest, error)
 	GetUsers(ctx context.Context, arg GetUsersParams) ([]User, error)
 	GetUsersByIDs(ctx context.Context, arg GetUsersByIDsParams) ([]User, error)
 	GetWorkspaceAgentByAuthToken(ctx context.Context, authToken uuid.UUID) (WorkspaceAgent, error)
@@ -120,6 +124,7 @@ type querier interface {
 	InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (TemplateVersion, error)
 	InsertUser(ctx context.Context, arg InsertUserParams) (User, error)
 	InsertUserLink(ctx context.Context, arg InsertUserLinkParams) (UserLink, error)
+	InsertUserLinkRequest(ctx context.Context, arg InsertUserLinkRequestParams) (UserLinkRequest, error)
 	InsertWorkspace(ctx context.Context, arg InsertWorkspaceParams) (Workspace, error)
 	InsertWorkspaceAgent(ctx context.Context, arg InsertWorkspaceAgentParams) (WorkspaceAgent, error)
 	InsertWorkspaceApp(ctx context.Context, arg InsertWorkspaceAppParams) (WorkspaceApp, error)
@@ -144,6 +149,7 @@ type querier interface {
 	UpdateUserHashedPassword(ctx context.Context, arg UpdateUserHashedPasswordParams) error
 	UpdateUserLastSeenAt(ctx context.Context, arg UpdateUserLastSeenAtParams) (User, error)
 	UpdateUserLink(ctx context.Context, arg UpdateUserLinkParams) (UserLink, error)
+	UpdateUserLinkRequestByID(ctx context.Context, arg UpdateUserLinkRequestByIDParams) error
 	UpdateUserLinkedID(ctx context.Context, arg UpdateUserLinkedIDParams) (UserLink, error)
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)
 	UpdateUserRoles(ctx context.Context, arg UpdateUserRolesParams) (User, error)

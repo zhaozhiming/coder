@@ -50,12 +50,41 @@ func (api *API) userAuthMethods(rw http.ResponseWriter, r *http.Request) {
 
 func (api *API) userOAuth2Github(rw http.ResponseWriter, r *http.Request) {
 	var (
-		ctx   = r.Context()
-		state = httpmw.OAuth2(r)
+		ctx    = r.Context()
+		state  = httpmw.OAuth2(r)
+		userID uuid.UUID
 	)
 
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(state.Token))
-	memberships, err := api.GithubOAuth2Config.ListOrganizationMemberships(ctx, oauthClient)
+	config := api.GithubOAuth2Config
+	if state.GitAuthProvider != "" {
+		// For git auth, user must be authenticated.
+		apiKey, ok := httpmw.APIKeyOptional(r)
+		if !ok {
+			httpapi.Write(r.Context(), rw, http.StatusUnauthorized, codersdk.Response{
+				Message: "Unauthorized",
+			})
+			return
+		}
+		userID = apiKey.UserID
+
+		c, ok := api.GitProviderConfigs[state.GitAuthProvider]
+		if !ok {
+			httpapi.Write(r.Context(), rw, http.StatusInternalServerError, codersdk.Response{
+				Message: "Internal error selecting git provider config, config does not exist.",
+			})
+			return
+		}
+		if c.Github == nil {
+			httpapi.Write(r.Context(), rw, http.StatusInternalServerError, codersdk.Response{
+				Message: "Internal error selecting git provider config, wrong type.",
+			})
+			return
+		}
+		config = c.Github
+	}
+
+	memberships, err := config.ListOrganizationMemberships(ctx, oauthClient)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching authenticated Github user organizations.",
@@ -65,7 +94,7 @@ func (api *API) userOAuth2Github(rw http.ResponseWriter, r *http.Request) {
 	}
 	var selectedMembership *github.Membership
 	for _, membership := range memberships {
-		for _, allowed := range api.GithubOAuth2Config.AllowOrganizations {
+		for _, allowed := range config.AllowOrganizations {
 			if *membership.Organization.Login != allowed {
 				continue
 			}
@@ -73,14 +102,19 @@ func (api *API) userOAuth2Github(rw http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if selectedMembership == nil {
-		httpapi.Write(ctx, rw, http.StatusUnauthorized, codersdk.Response{
-			Message: "You aren't a member of the authorized Github organizations!",
-		})
-		return
+
+	// For git auth, only enforce organization memberships when at least
+	// one organization has been specificed.
+	if len(config.AllowOrganizations) > 0 || state.GitAuthProvider == "" {
+		if selectedMembership == nil {
+			httpapi.Write(ctx, rw, http.StatusUnauthorized, codersdk.Response{
+				Message: "You aren't a member of the authorized Github organizations!",
+			})
+			return
+		}
 	}
 
-	ghUser, err := api.GithubOAuth2Config.AuthenticatedUser(ctx, oauthClient)
+	ghUser, err := config.AuthenticatedUser(ctx, oauthClient)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching authenticated Github user.",
@@ -90,16 +124,16 @@ func (api *API) userOAuth2Github(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	// The default if no teams are specified is to allow all.
-	if len(api.GithubOAuth2Config.AllowTeams) > 0 {
+	if len(config.AllowTeams) > 0 {
 		var allowedTeam *github.Membership
-		for _, allowTeam := range api.GithubOAuth2Config.AllowTeams {
+		for _, allowTeam := range config.AllowTeams {
 			if allowTeam.Organization != *selectedMembership.Organization.Login {
 				// This needs to continue because multiple organizations
 				// could exist in the allow/team listings.
 				continue
 			}
 
-			allowedTeam, err = api.GithubOAuth2Config.TeamMembership(ctx, oauthClient, allowTeam.Organization, allowTeam.Slug, *ghUser.Login)
+			allowedTeam, err = config.TeamMembership(ctx, oauthClient, allowTeam.Organization, allowTeam.Slug, *ghUser.Login)
 			// The calling user may not have permission to the requested team!
 			if err != nil {
 				continue
@@ -113,7 +147,8 @@ func (api *API) userOAuth2Github(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	emails, err := api.GithubOAuth2Config.ListEmails(ctx, oauthClient)
+	// TODO(mafredri): Make email check optional for git providers?
+	emails, err := config.ListEmails(ctx, oauthClient)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching personal Github user.",
@@ -139,9 +174,10 @@ func (api *API) userOAuth2Github(rw http.ResponseWriter, r *http.Request) {
 
 	cookie, err := api.oauthLogin(r, oauthLoginParams{
 		State:        state,
+		UserID:       userID,
 		LinkedID:     githubLinkedID(ghUser),
 		LoginType:    database.LoginTypeGithub,
-		AllowSignups: api.GithubOAuth2Config.AllowSignups,
+		AllowSignups: config.AllowSignups,
 		Email:        verifiedEmail.GetEmail(),
 		Username:     ghUser.GetLogin(),
 		AvatarURL:    ghUser.GetAvatarURL(),
@@ -162,7 +198,10 @@ func (api *API) userOAuth2Github(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(rw, cookie)
+	// Only set cookie if this was not a git auth request.
+	if cookie != nil {
+		http.SetCookie(rw, cookie)
+	}
 
 	redirect := state.Redirect
 	if redirect == "" {
@@ -182,9 +221,38 @@ type OIDCConfig struct {
 
 func (api *API) userOIDC(rw http.ResponseWriter, r *http.Request) {
 	var (
-		ctx   = r.Context()
-		state = httpmw.OAuth2(r)
+		ctx    = r.Context()
+		state  = httpmw.OAuth2(r)
+		userID uuid.UUID
 	)
+
+	config := api.OIDCConfig
+	if state.GitAuthProvider != "" {
+		// For git auth, user must be authenticated.
+		apiKey, ok := httpmw.APIKeyOptional(r)
+		if !ok {
+			httpapi.Write(r.Context(), rw, http.StatusUnauthorized, codersdk.Response{
+				Message: "Unauthorized",
+			})
+			return
+		}
+		userID = apiKey.UserID
+
+		c, ok := api.GitProviderConfigs[state.GitAuthProvider]
+		if !ok {
+			httpapi.Write(r.Context(), rw, http.StatusInternalServerError, codersdk.Response{
+				Message: "Internal error selecting git provider config, config does not exist.",
+			})
+			return
+		}
+		if c.OIDC == nil {
+			httpapi.Write(r.Context(), rw, http.StatusInternalServerError, codersdk.Response{
+				Message: "Internal error selecting git provider config, wrong type.",
+			})
+			return
+		}
+		config = c.OIDC
+	}
 
 	// See the example here: https://github.com/coreos/go-oidc
 	rawIDToken, ok := state.Token.Extra("id_token").(string)
@@ -195,7 +263,7 @@ func (api *API) userOIDC(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idToken, err := api.OIDCConfig.Verifier.Verify(ctx, rawIDToken)
+	idToken, err := config.Verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
 			Message: "Failed to verify OIDC token.",
@@ -257,10 +325,10 @@ func (api *API) userOIDC(rw http.ResponseWriter, r *http.Request) {
 		}
 		username = httpapi.UsernameFrom(username)
 	}
-	if api.OIDCConfig.EmailDomain != "" {
-		if !strings.HasSuffix(email, api.OIDCConfig.EmailDomain) {
+	if config.EmailDomain != "" {
+		if !strings.HasSuffix(email, config.EmailDomain) {
 			httpapi.Write(ctx, rw, http.StatusForbidden, codersdk.Response{
-				Message: fmt.Sprintf("Your email %q is not a part of the %q domain!", email, api.OIDCConfig.EmailDomain),
+				Message: fmt.Sprintf("Your email %q is not a part of the %q domain!", email, config.EmailDomain),
 			})
 			return
 		}
@@ -273,9 +341,10 @@ func (api *API) userOIDC(rw http.ResponseWriter, r *http.Request) {
 
 	cookie, err := api.oauthLogin(r, oauthLoginParams{
 		State:        state,
+		UserID:       userID,
 		LinkedID:     oidcLinkedID(idToken),
 		LoginType:    database.LoginTypeOIDC,
-		AllowSignups: api.OIDCConfig.AllowSignups,
+		AllowSignups: config.AllowSignups,
 		Email:        email,
 		Username:     username,
 		AvatarURL:    picture,
@@ -296,7 +365,10 @@ func (api *API) userOIDC(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(rw, cookie)
+	// Only set cookie if this was not a git auth request.
+	if cookie != nil {
+		http.SetCookie(rw, cookie)
+	}
 
 	redirect := state.Redirect
 	if redirect == "" {
@@ -305,8 +377,49 @@ func (api *API) userOIDC(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, redirect, http.StatusTemporaryRedirect)
 }
 
+type GitProviderConfig struct {
+	Name   string
+	URL    string
+	Github *GithubOAuth2Config
+	OIDC   *OIDCConfig
+}
+
+func (c *GitProviderConfig) OAuth2Config() httpmw.OAuth2Config {
+	switch {
+	case c.Github != nil:
+		return c.Github
+	case c.OIDC != nil:
+		return c.OIDC
+	default:
+		panic("developer error: unhandled git provider config")
+	}
+}
+
+type GitProviderConfigs map[string]GitProviderConfig
+
+func (gpc GitProviderConfigs) Github() map[string]httpmw.OAuth2Config {
+	m := make(map[string]httpmw.OAuth2Config)
+	for _, gp := range gpc {
+		if gp.Github != nil {
+			m[gp.Name] = gp.Github
+		}
+	}
+	return m
+}
+
+func (gpc GitProviderConfigs) OIDC() map[string]httpmw.OAuth2Config {
+	m := make(map[string]httpmw.OAuth2Config)
+	for _, gp := range gpc {
+		if gp.OIDC != nil {
+			m[gp.Name] = gp.OIDC
+		}
+	}
+	return m
+}
+
 type oauthLoginParams struct {
 	State     httpmw.OAuth2State
+	UserID    uuid.UUID // Required for git auth.
 	LinkedID  string
 	LoginType database.LoginType
 
@@ -333,10 +446,78 @@ func (e httpError) Error() string {
 }
 
 func (api *API) oauthLogin(r *http.Request, params oauthLoginParams) (*http.Cookie, error) {
-	var (
-		ctx  = r.Context()
-		user database.User
-	)
+	ctx := r.Context()
+
+	// TODO(mafredri): Refactor this to keep this function clean.
+	// TODO(mafredri): Ensure a separate git auth token does not replace
+	// user token and don't needlessly create multiple.
+
+	// TODO(mafredri): Set login URL for login providers as well.
+	var loginURL string
+
+	if params.State.GitAuthProvider != "" {
+		var gitProvider GitProviderConfig
+		for _, gp := range api.GitProviderConfigs {
+			if gp.Name == params.State.GitAuthProvider {
+				gitProvider = gp
+				break
+			}
+		}
+		if gitProvider.Name == "" {
+			return nil, xerrors.Errorf("git provider not found: %q", params.State.GitAuthProvider)
+		}
+		loginURL = gitProvider.URL
+
+		err := api.Database.InTx(func(tx database.Store) error {
+			// TODO(mafredri): Handle updates too?
+			link, err := tx.InsertUserLink(ctx, database.InsertUserLinkParams{
+				UserID:            params.UserID,
+				LoginType:         params.LoginType,
+				LoginUser:         params.Username,
+				DefaultLoginUser:  true, // TODO(mafredri): Only set to true if it was empty in the user link request.
+				LoginUrl:          loginURL,
+				LinkedID:          params.LinkedID,
+				OAuthAccessToken:  params.State.Token.AccessToken,
+				OAuthRefreshToken: params.State.Token.RefreshToken,
+				OAuthExpiry:       params.State.Token.Expiry,
+			})
+			if err != nil {
+				return xerrors.Errorf("insert user link: %w", err)
+			}
+			// TODO(mafredri):
+			_ = link
+
+			gaReqs, err := tx.GetUserLinkRequestsByUserID(ctx, database.GetUserLinkRequestsByUserIDParams{
+				UserID: params.UserID,
+				Status: codersdk.GitAuthRequestStatusPending,
+			})
+			if err != nil {
+				return xerrors.Errorf("get user link requests: %w", err)
+			}
+
+			for _, gaReq := range gaReqs {
+				// TODO(mafredri): This is still kinda wrong, handle login user better.
+				// Update all requests that match the criteria.
+				if (gaReq.LoginUser == "" || gaReq.LoginUser == params.Username) && gaReq.LoginUrl == loginURL {
+					err = tx.UpdateUserLinkRequestByID(ctx, database.UpdateUserLinkRequestByIDParams{
+						ID:        gaReq.ID,
+						UpdatedAt: database.Now(),
+						Resolved:  true,
+					})
+					if err != nil {
+						return xerrors.Errorf("update user link request: %w", err)
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("update user link requests: %w", err)
+		}
+		return nil, nil
+	}
+
+	var user database.User
 
 	err := api.Database.InTx(func(tx database.Store) error {
 		var (
@@ -395,6 +576,8 @@ func (api *API) oauthLogin(r *http.Request, params oauthLoginParams) (*http.Cook
 			link, err = tx.InsertUserLink(ctx, database.InsertUserLinkParams{
 				UserID:            user.ID,
 				LoginType:         params.LoginType,
+				LoginUser:         params.Username,
+				LoginUrl:          loginURL,
 				LinkedID:          params.LinkedID,
 				OAuthAccessToken:  params.State.Token.AccessToken,
 				OAuthRefreshToken: params.State.Token.RefreshToken,
@@ -410,16 +593,16 @@ func (api *API) oauthLogin(r *http.Request, params oauthLoginParams) (*http.Cook
 		// pre-existing OAuth user and not have a linked ID.
 		// The migration that added the user_links table could not populate
 		// the 'linked_id' field since it requires fields off the access token.
-		if link.LinkedID == "" {
-			link, err = tx.UpdateUserLinkedID(ctx, database.UpdateUserLinkedIDParams{
-				UserID:    user.ID,
-				LoginType: params.LoginType,
-				LinkedID:  params.LinkedID,
-			})
-			if err != nil {
-				return xerrors.Errorf("update user linked ID: %w", err)
-			}
-		}
+		// if link.LinkedID == "" {
+		// 	link, err = tx.UpdateUserLinkedID(ctx, database.UpdateUserLinkedIDParams{
+		// 		UserID:    user.ID,
+		// 		LoginType: params.LoginType,
+		// 		LinkedID:  params.LinkedID,
+		// 	})
+		// 	if err != nil {
+		// 		return xerrors.Errorf("update user linked ID: %w", err)
+		// 	}
+		// }
 
 		if link.UserID != uuid.Nil {
 			link, err = tx.UpdateUserLink(ctx, database.UpdateUserLinkParams{
@@ -509,6 +692,7 @@ func findLinkedUser(ctx context.Context, db database.Store, linkedID string, ema
 		user database.User
 		link database.UserLink
 	)
+
 	link, err := db.GetUserLinkByLinkedID(ctx, linkedID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return user, link, xerrors.Errorf("get user auth by linked ID: %w", err)
@@ -547,13 +731,13 @@ func findLinkedUser(ctx context.Context, db database.Store, linkedID string, ema
 	// LEGACY: This is annoying but we have to search for the user_link
 	// again except this time we search by user_id and login_type. It's
 	// possible that a user_link exists without a populated 'linked_id'.
-	link, err = db.GetUserLinkByUserIDLoginType(ctx, database.GetUserLinkByUserIDLoginTypeParams{
-		UserID:    user.ID,
-		LoginType: user.LoginType,
-	})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return database.User{}, database.UserLink{}, xerrors.Errorf("get user link by user id and login type: %w", err)
-	}
+	// link, err = db.GetUserLinkByUserIDLoginType(ctx, database.GetUserLinkByUserIDLoginTypeParams{
+	// 	UserID:    user.ID,
+	// 	LoginType: user.LoginType,
+	// })
+	// if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	// 	return database.User{}, database.UserLink{}, xerrors.Errorf("get user link by user id and login type: %w", err)
+	// }
 
 	return user, link, nil
 }

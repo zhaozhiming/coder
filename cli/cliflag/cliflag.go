@@ -87,6 +87,30 @@ func StringArrayVarP(flagset *pflag.FlagSet, ptr *[]string, name string, shortha
 	flagset.StringArrayVarP(ptr, name, shorthand, def, fmtUsage(usage, env))
 }
 
+func StringArrayDelimiter(flagset *pflag.FlagSet, name, shorthand, env string, def []string, delimiter, usage string) {
+	v, ok := os.LookupEnv(env)
+	if !ok || v == "" {
+		if v == "" {
+			def = []string{}
+		} else {
+			def = strings.Split(v, delimiter)
+		}
+	}
+	flagset.StringArrayP(name, shorthand, def, fmtUsage(usage, env))
+}
+
+func StringArrayDelimiterVarP(flagset *pflag.FlagSet, ptr *[]string, name string, shorthand string, env string, def []string, delimiter, usage string) {
+	val, ok := os.LookupEnv(env)
+	if ok {
+		if val == "" {
+			def = []string{}
+		} else {
+			def = strings.Split(val, delimiter)
+		}
+	}
+	flagset.StringArrayVarP(ptr, name, shorthand, def, fmtUsage(usage, env))
+}
+
 // Uint8VarP sets a uint8 flag on the given flag set.
 func Uint8VarP(flagset *pflag.FlagSet, ptr *uint8, name string, shorthand string, env string, def uint8, usage string) {
 	val, ok := os.LookupEnv(env)

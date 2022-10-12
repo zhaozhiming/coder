@@ -582,6 +582,7 @@ func convertWorkspaceAgent(derpMap *tailcfg.DERPMap, coordinator *tailnet.Coordi
 
 	return workspaceAgent, nil
 }
+
 func (api *API) workspaceAgentReportStats(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

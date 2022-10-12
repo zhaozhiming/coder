@@ -513,6 +513,9 @@ func (a *agent) createCommand(ctx context.Context, rawCommand string, env []stri
 	// Git on Windows resolves with UNIX-style paths.
 	// If using backslashes, it's unable to find the executable.
 	unixExecutablePath := strings.ReplaceAll(executablePath, "\\", "/")
+	// TODO(mafredri): Consider replacing with `askpass.sh` to simplify
+	// root command hack/workaround.
+	cmd.Env = append(cmd.Env, fmt.Sprintf("GIT_ASKPASS=%s", unixExecutablePath))
 	cmd.Env = append(cmd.Env, fmt.Sprintf(`GIT_SSH_COMMAND=%s gitssh --`, unixExecutablePath))
 
 	// Set SSH connection environment variables (these are also set by OpenSSH

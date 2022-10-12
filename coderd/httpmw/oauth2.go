@@ -16,8 +16,9 @@ import (
 type oauth2StateKey struct{}
 
 type OAuth2State struct {
-	Token    *oauth2.Token
-	Redirect string
+	Token           *oauth2.Token
+	Redirect        string
+	GitAuthProvider string
 }
 
 // OAuth2Config exposes a subset of *oauth2.Config functions for easier testing.
@@ -40,10 +41,26 @@ func OAuth2(r *http.Request) OAuth2State {
 // ExtractOAuth2 is a middleware for automatically redirecting to OAuth
 // URLs, and handling the exchange inbound. Any route that does not have
 // a "code" URL parameter will be redirected.
-func ExtractOAuth2(config OAuth2Config) func(http.Handler) http.Handler {
+func ExtractOAuth2(loginConfig OAuth2Config, gitProviders map[string]OAuth2Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
+			config := loginConfig
+
+			// If the initial request included the git provider, switch
+			// the config to match (cookie is set after error checks).
+			gitAuthProviderName := r.URL.Query().Get("git_auth")
+			if gitAuthProviderName != "" {
+				gp, ok := gitProviders[gitAuthProviderName]
+				if !ok {
+					httpapi.Write(ctx, rw, http.StatusPreconditionRequired, codersdk.Response{
+						Message: fmt.Sprintf("The requested git provider %q is not configured!", gitAuthProviderName),
+					})
+					return
+				}
+				config = gp
+			}
+
 			// Interfaces can hold a nil value
 			if config == nil || reflect.ValueOf(config).IsNil() {
 				httpapi.Write(ctx, rw, http.StatusPreconditionRequired, codersdk.Response{
@@ -73,6 +90,13 @@ func ExtractOAuth2(config OAuth2Config) func(http.Handler) http.Handler {
 					HttpOnly: true,
 					SameSite: http.SameSiteLaxMode,
 				})
+				http.SetCookie(rw, &http.Cookie{
+					Name:     codersdk.OAuth2GitAuthProviderKey,
+					Value:    gitAuthProviderName,
+					Path:     "/",
+					HttpOnly: true,
+					SameSite: http.SameSiteLaxMode,
+				})
 				// Redirect must always be specified, otherwise
 				// an old redirect could apply!
 				http.SetCookie(rw, &http.Cookie{
@@ -85,6 +109,21 @@ func ExtractOAuth2(config OAuth2Config) func(http.Handler) http.Handler {
 
 				http.Redirect(rw, r, config.AuthCodeURL(state, oauth2.AccessTypeOffline), http.StatusTemporaryRedirect)
 				return
+			}
+
+			// If this is the continuation of a git provider login request,
+			// restore the config from cookie.
+			gitAuthProviderCookie, err := r.Cookie(codersdk.OAuth2GitAuthProviderKey)
+			if err == nil && gitAuthProviderCookie.Value != "" {
+				gitAuthProviderName = gitAuthProviderCookie.Value
+				gp, ok := gitProviders[gitAuthProviderName]
+				if !ok {
+					httpapi.Write(ctx, rw, http.StatusPreconditionRequired, codersdk.Response{
+						Message: fmt.Sprintf("The requested git provider %q is not configured!", gitAuthProviderName),
+					})
+					return
+				}
+				config = gp
 			}
 
 			if state == "" {
@@ -124,8 +163,9 @@ func ExtractOAuth2(config OAuth2Config) func(http.Handler) http.Handler {
 			}
 
 			ctx = context.WithValue(ctx, oauth2StateKey{}, OAuth2State{
-				Token:    oauthToken,
-				Redirect: redirect,
+				Token:           oauthToken,
+				Redirect:        redirect,
+				GitAuthProvider: gitAuthProviderName,
 			})
 			next.ServeHTTP(rw, r.WithContext(ctx))
 		})

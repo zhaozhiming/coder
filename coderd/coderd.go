@@ -69,6 +69,7 @@ type Options struct {
 	GoogleTokenValidator *idtoken.Validator
 	GithubOAuth2Config   *GithubOAuth2Config
 	OIDCConfig           *OIDCConfig
+	GitProviderConfigs   GitProviderConfigs
 	PrometheusRegistry   *prometheus.Registry
 	SecureAuthCookie     bool
 	SSHKeygenAlgorithm   gitsshkey.Algorithm
@@ -169,6 +170,12 @@ func New(options *Options) *API {
 		RedirectToLogin: false,
 		Optional:        false,
 	})
+	apiKeyMiddlewareOptional := httpmw.ExtractAPIKey(httpmw.ExtractAPIKeyConfig{
+		DB:              options.Database,
+		OAuth2Configs:   oauthConfigs,
+		RedirectToLogin: false,
+		Optional:        true,
+	})
 	// Same as above but it redirects to the login page.
 	apiKeyMiddlewareRedirect := httpmw.ExtractAPIKey(httpmw.ExtractAPIKeyConfig{
 		DB:              options.Database,
@@ -227,7 +234,7 @@ func New(options *Options) *API {
 	r.Route("/derp", func(r chi.Router) {
 		r.Get("/", derphttp.Handler(api.derpServer).ServeHTTP)
 		// This is used when UDP is blocked, and latency must be checked via HTTP(s).
-		r.Get("/latency-check", func(w http.ResponseWriter, r *http.Request) {
+		r.Get("/latency-check", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 	})
@@ -235,7 +242,7 @@ func New(options *Options) *API {
 	r.Route("/api/v2", func(r chi.Router) {
 		api.APIHandler = r
 
-		r.NotFound(func(rw http.ResponseWriter, r *http.Request) { httpapi.RouteNotFound(rw) })
+		r.NotFound(func(rw http.ResponseWriter, _ *http.Request) { httpapi.RouteNotFound(rw) })
 		r.Use(
 			tracing.Middleware(api.TracerProvider),
 			// Specific routes can specify smaller limits.
@@ -362,12 +369,18 @@ func New(options *Options) *API {
 			r.Get("/authmethods", api.userAuthMethods)
 			r.Route("/oauth2", func(r chi.Router) {
 				r.Route("/github", func(r chi.Router) {
-					r.Use(httpmw.ExtractOAuth2(options.GithubOAuth2Config))
+					r.Use(
+						httpmw.ExtractOAuth2(options.GithubOAuth2Config, options.GitProviderConfigs.Github()),
+						apiKeyMiddlewareOptional, // For associating git auth to user.
+					)
 					r.Get("/callback", api.userOAuth2Github)
 				})
 			})
 			r.Route("/oidc/callback", func(r chi.Router) {
-				r.Use(httpmw.ExtractOAuth2(options.OIDCConfig))
+				r.Use(
+					httpmw.ExtractOAuth2(options.OIDCConfig, options.GitProviderConfigs.OIDC()),
+					apiKeyMiddlewareOptional, // For associating git auth to user.
+				)
 				r.Get("/", api.userOIDC)
 			})
 			r.Group(func(r chi.Router) {
@@ -412,6 +425,11 @@ func New(options *Options) *API {
 					})
 					r.Get("/gitsshkey", api.gitSSHKey)
 					r.Put("/gitsshkey", api.regenerateGitSSHKey)
+					r.Route("/git/auth", func(r chi.Router) {
+						r.Get("/", api.gitAuthRequests)
+						r.Get("/{request_id}", api.gitAuthRequest)
+						r.Get("/{request_id}/confirm", api.gitAuthRequestConfirm)
+					})
 				})
 			})
 		})
@@ -428,6 +446,10 @@ func New(options *Options) *API {
 				r.Get("/gitsshkey", api.agentGitSSHKey)
 				r.Get("/coordinate", api.workspaceAgentCoordinate)
 				r.Get("/report-stats", api.workspaceAgentReportStats)
+				r.Route("/git/auth", func(r chi.Router) {
+					r.Post("/", api.postWorkspaceAgentGitAuthRequest)
+					r.Get("/{request_id}", api.workspaceAgentGitAuthRequest)
+				})
 			})
 			r.Route("/{workspaceagent}", func(r chi.Router) {
 				r.Use(

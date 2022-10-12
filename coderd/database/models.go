@@ -366,6 +366,7 @@ type APIKey struct {
 	LifetimeSeconds int64       `db:"lifetime_seconds" json:"lifetime_seconds"`
 	IPAddress       pqtype.Inet `db:"ip_address" json:"ip_address"`
 	Scope           APIKeyScope `db:"scope" json:"scope"`
+	LoginUrl        string      `db:"login_url" json:"login_url"`
 }
 
 type AgentStat struct {
@@ -559,6 +560,38 @@ type UserLink struct {
 	OAuthAccessToken  string    `db:"oauth_access_token" json:"oauth_access_token"`
 	OAuthRefreshToken string    `db:"oauth_refresh_token" json:"oauth_refresh_token"`
 	OAuthExpiry       time.Time `db:"oauth_expiry" json:"oauth_expiry"`
+	// The login user this link refers to (can be different from Coder user).
+	LoginUser string `db:"login_user" json:"login_user"`
+	// Default login user indicates this link will be used when no specific user is requested.
+	DefaultLoginUser bool `db:"default_login_user" json:"default_login_user"`
+	// The login url links this entry to a specific provider.
+	LoginUrl string `db:"login_url" json:"login_url"`
+	// The current scopes available for this user link, can be used to verify if reauth is required to receive additional permissions.
+	Scopes []string `db:"scopes" json:"scopes"`
+}
+
+// User link requests are used to prompt for authentication (OAuth/OIDC) in the browser, e.g. by git askpass inside workspaces.
+type UserLinkRequest struct {
+	// The unique ID of the request.
+	ID uuid.UUID `db:"id" json:"id"`
+	// The ID of the user this request belongs to.
+	UserID uuid.UUID `db:"user_id" json:"user_id"`
+	// The ID of the agent that created this request.
+	AgentID uuid.UUID `db:"agent_id" json:"agent_id"`
+	// The time the request was created.
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	// The time the request was updated.
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	// The time at which this request expires, if unresolved.
+	ExpiresAt time.Time `db:"expires_at" json:"expires_at"`
+	// The auth provider that was matched for this request, can have multiple values in case of conflict.
+	Provider []string `db:"provider" json:"provider"`
+	// The requested user for the login request, often empty.
+	LoginUser string `db:"login_user" json:"login_user"`
+	// The URL this login was requested for.
+	LoginUrl string `db:"login_url" json:"login_url"`
+	// Resolved is set to true when the login is successful.
+	Resolved bool `db:"resolved" json:"resolved"`
 }
 
 type Workspace struct {

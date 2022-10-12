@@ -64,6 +64,8 @@ func AGPLRoutes(a *AuthTester) (map[string]string, map[string]RouteCheck) {
 		"POST:/api/v2/workspaceagents/me/version":               {NoAuthorize: true},
 		"POST:/api/v2/workspaceagents/me/app-health":            {NoAuthorize: true},
 		"GET:/api/v2/workspaceagents/me/report-stats":           {NoAuthorize: true},
+		"POST:/api/v2/workspaceagents/me/askpass":               {NoAuthorize: true},
+		"GET:/api/v2/workspaceagents/me/askpass/{request_id}":   {NoAuthorize: true},
 
 		// These endpoints have more assertions. This is good, add more endpoints to assert if you can!
 		"GET:/api/v2/organizations/{organization}": {AssertObject: rbac.ResourceOrganization.InOrg(a.Admin.OrganizationID)},
@@ -251,9 +253,11 @@ func AGPLRoutes(a *AuthTester) (map[string]string, map[string]RouteCheck) {
 	// Routes like proxy routes support all HTTP methods. A helper func to expand
 	// 1 url to all http methods.
 	assertAllHTTPMethods := func(url string, check RouteCheck) {
-		methods := []string{http.MethodGet, http.MethodHead, http.MethodPost,
+		methods := []string{
+			http.MethodGet, http.MethodHead, http.MethodPost,
 			http.MethodPut, http.MethodPatch, http.MethodDelete,
-			http.MethodConnect, http.MethodOptions, http.MethodTrace}
+			http.MethodConnect, http.MethodOptions, http.MethodTrace,
+		}
 
 		for _, method := range methods {
 			route := method + ":" + url
