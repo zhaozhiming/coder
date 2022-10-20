@@ -171,35 +171,6 @@ func Root(subcommands []*cobra.Command) *cobra.Command {
 		),
 	}
 
-<<<<<<< HEAD
-	cmd.AddCommand(
-		configSSH(),
-		create(),
-		deleteWorkspace(),
-		dotfiles(),
-		gitssh(),
-		list(),
-		login(),
-		logout(),
-		parameters(),
-		portForward(),
-		publickey(),
-		resetPassword(),
-		schedules(),
-		server(),
-		show(),
-		ssh(),
-		start(),
-		state(),
-		stop(),
-		templates(),
-		update(),
-		upgrade(),
-		users(),
-		versionCmd(),
-		wireguardPortForward(),
-		workspaceAgent(),
-	)
 	cmd.AddCommand(subcommands...)
 	fixUnknownSubcommandError(cmd.Commands())
 
