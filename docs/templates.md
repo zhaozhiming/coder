@@ -47,7 +47,7 @@ used to define the workspace lifecycle and establish a connection from resources
 to Coder.
 
 Below is an overview of some key concepts in templates (and workspaces). For all
-template options, reference [Coder Terraform provider docs](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs/resources/container).
+template options, reference [Coder Terraform provider docs](https://registry.terraform.io/providers/coder/coder/latest/docs).
 
 ### Resource
 
@@ -95,6 +95,41 @@ The `coder_agent` resource can be configured as described in the
 For example, you can use the `env` property to set environment variables that will be
 inherited by all child processes of the agent, including SSH sessions.
 
+#### startup_script
+
+Use the Coder agent's `startup_script` to run additional commands like
+installing IDEs, [cloning dotfiles](./dotfiles.md#templates), and cloning project repos.
+
+```hcl
+resource "coder_agent" "coder" {
+  os   = "linux"
+  arch = "amd64"
+  dir = "/home/coder"
+  startup_script = <<EOT
+#!/bin/bash
+
+# install code-server
+curl -fsSL https://code-server.dev/install.sh | sh
+
+# The & prevents the startup_script from blocking so the
+# next commands can run.
+code-server --auth none --port &
+
+# var.repo and var.dotfiles_uri is specified
+# elsewhere in the Terraform code as input
+# variables.
+
+# clone repo
+ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+git clone --progress git@github.com:${var.repo}
+
+# use coder CLI to clone and install dotfiles
+coder dotfiles -y ${var.dotfiles_uri}
+
+  EOT
+}
+```
+
 ### Parameters
 
 Templates often contain _parameters_. These are defined by `variable` blocks in
@@ -107,13 +142,13 @@ Terraform. There are two types of parameters:
   values are often personalization settings such as "preferred region"
   or "workspace image".
 
-The template sample below uses *admin and user parameters* to allow developers to
+The template sample below uses _admin and user parameters_ to allow developers to
 create workspaces from any image as long as it is in the proper registry:
 
 ```hcl
 variable "image_registry_url" {
-  description = "The image registry developers can sele"
-  default     = "artifactory1.organization.com`
+  description = "The image registry developers can select"
+  default     = "artifactory1.organization.com"
   sensitive   = true # admin (template-wide) parameter
 }
 
@@ -131,7 +166,7 @@ resource "docker_image" "workspace" {
 
 ### Persistent vs. ephemeral resources
 
-You can use the workspace state to ensure some resources in Coder can are
+You can use the workspace state to ensure some resources in Coder are
 persistent, while others are ephemeral.
 
 #### Start/stop
@@ -142,8 +177,8 @@ runs an additional
 [terraform apply](https://www.terraform.io/cli/commands/apply), informing the
 Coder provider that the workspace has a new transition state.
 
-This template sample has one persistent resource (docker image) and one ephemeral resource
-(docker volume).
+This template sample has one persistent resource (docker volume) and one ephemeral resource
+(docker image).
 
 ```sh
 data "coder_workspace" "me" {
@@ -188,6 +223,22 @@ resource "kubernetes_pod" "podName" {
 }
 ```
 
+### Delete templates
+
+You can delete a template using both the coder CLI and UI. Only
+[template admins and owners](./admin/users.md) can delete a template, and the template
+must not have any running workspaces associated to it.
+
+Using the CLI, login to Coder and run the following command to delete a template:
+
+```console
+coder templates delete <template-name>
+```
+
+In the UI, navigate to the template you want to delete, and select the dropdown in
+the right-hand corner of the page to delete the template.
+
+![delete-template](./images/delete-template.png)
 
 #### Delete workspaces
 
@@ -204,7 +255,7 @@ resources associated with the workspace.
 ### Coder apps
 
 By default, all templates allow developers to connect over SSH and a web
-terminal. See [Configuring Web IDEs](./ides/configuring-web-ides.md) to
+terminal. See [Configuring Web IDEs](./ides/web-ides.md) to
 learn how to give users access to additional web applications.
 
 ### Data source
@@ -218,7 +269,7 @@ sets a few environment variables based on the username and email address of the 
 that you can make Git commits immediately without any manual configuration:
 
 ```tf
-resource "coder_agent" "dev" {
+resource "coder_agent" "main" {
   # ...
   env = {
     GIT_AUTHOR_NAME = "${data.coder_workspace.me.owner}"
@@ -256,16 +307,16 @@ practices:
 - Ensure the resource has `curl` installed
 - Ensure the resource can reach your Coder URL
 - Manually connect to the resource (e.g., `docker exec` or AWS console)
-  - The Coder agent logs are typically stored in (`/var/log/coder-agent.log`)
+  - The Coder agent logs are typically stored in `/var/log/coder-agent.log`
+  - The Coder agent startup script logs are typically stored in `/var/log/coder-startup-script.log`
 
+## Template permissions (enterprise)
 
-## Change Management
+Template permissions can be used to give users and groups access to specific templates. [Learn more about RBAC](./admin/rbac.md).
 
-We recommend source controlling your templates as you would other code.
+## Next Steps
 
-CI is as simple as running `coder templates update` with the appropriate
-credentials.
-
----
-
-Next: [Authentication & Secrets](templates/authentication.md) and [Workspaces](./workspaces.md)
+- Learn about [Authentication & Secrets](templates/authentication.md)
+- Learn about [Change Management](templates/change-management.md)
+- Learn about [Resource Metadata](templates/resource-metadata.md)
+- Learn about [Workspaces](workspaces.md)

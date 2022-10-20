@@ -2,11 +2,11 @@ terraform {
   required_providers {
     coder = {
       source  = "coder/coder"
-      version = "0.4.3"
+      version = "0.5.3"
     }
     google = {
       source  = "hashicorp/google"
-      version = "~> 4.15"
+      version = "~> 4.34.0"
     }
   }
 }
@@ -35,10 +35,33 @@ data "google_compute_default_service_account" "default" {
 data "coder_workspace" "me" {
 }
 
-resource "coder_agent" "dev" {
-  auth = "google-instance-identity"
-  arch = "amd64"
-  os   = "linux"
+resource "coder_agent" "main" {
+  auth           = "google-instance-identity"
+  arch           = "amd64"
+  os             = "linux"
+  startup_script = <<EOT
+    #!/bin/bash
+
+    # install and start code-server
+    curl -fsSL https://code-server.dev/install.sh | sh  | tee code-server-install.log
+    code-server --auth none --port 13337 | tee code-server-install.log &
+  EOT
+}
+
+# code-server
+resource "coder_app" "code-server" {
+  agent_id  = coder_agent.main.id
+  name      = "code-server"
+  icon      = "/icon/code.svg"
+  url       = "http://localhost:13337?folder=/home/coder"
+  subdomain = false
+  share     = "owner"
+
+  healthcheck {
+    url       = "http://localhost:13337/healthz"
+    interval  = 3
+    threshold = 10
+  }
 }
 
 module "gce-container" {
@@ -46,9 +69,9 @@ module "gce-container" {
   version = "3.0.0"
 
   container = {
-    image   = "mcr.microsoft.com/vscode/devcontainers/go:1"
+    image   = "codercom/enterprise-base:ubuntu"
     command = ["sh"]
-    args    = ["-c", coder_agent.dev.init_script]
+    args    = ["-c", coder_agent.main.init_script]
     securityContext = {
       privileged : true
     }
@@ -85,6 +108,16 @@ resource "google_compute_instance" "dev" {
 
 resource "coder_agent_instance" "dev" {
   count       = data.coder_workspace.me.start_count
-  agent_id    = coder_agent.dev.id
+  agent_id    = coder_agent.main.id
   instance_id = google_compute_instance.dev[0].instance_id
+}
+
+resource "coder_metadata" "workspace_info" {
+  count       = data.coder_workspace.me.start_count
+  resource_id = google_compute_instance.dev[0].id
+
+  item {
+    key   = "image"
+    value = module.gce-container.container.image
+  }
 }

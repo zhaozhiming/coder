@@ -1,12 +1,11 @@
 # Coder
 
-[!["GitHub
-Discussions"](https://img.shields.io/badge/%20GitHub-%20Discussions-gray.svg?longCache=true&logo=github&colorB=purple)](https://github.com/coder/coder/discussions)
 [!["Join us on
-Discord"](https://img.shields.io/badge/join-us%20on%20Discord-gray.svg?longCache=true&logo=discord&colorB=purple)](https://discord.gg/coder)
-[![Twitter
-Follow](https://img.shields.io/twitter/follow/CoderHQ?label=%40CoderHQ&style=social)](https://twitter.com/coderhq)
+Discord"](https://img.shields.io/badge/join-us%20on%20Discord-gray.svg?longCache=true&logo=discord&colorB=green)](https://coder.com/chat?utm_source=github.com/coder/coder&utm_medium=github&utm_campaign=readme.md)
 [![codecov](https://codecov.io/gh/coder/coder/branch/main/graph/badge.svg?token=TNLW3OAP6G)](https://codecov.io/gh/coder/coder)
+[![Go Reference](https://pkg.go.dev/badge/github.com/coder/coder.svg)](https://pkg.go.dev/github.com/coder/coder)
+[![Twitter
+Follow](https://img.shields.io/twitter/follow/coderhq?label=%40coderhq&style=social)](https://twitter.com/coderhq)
 
 Coder creates remote development machines so your team can develop from anywhere.
 
@@ -31,7 +30,7 @@ Coder creates remote development machines so your team can develop from anywhere
 ## Getting Started
 
 > **Note**:
-> Coder is in an alpha state. [Report issues here](https://github.com/coder/coder/issues/new).
+> Coder is in a beta state. [Report issues here](https://github.com/coder/coder/issues/new).
 
 The easiest way to install Coder is to use our [install script](https://github.com/coder/coder/blob/main/install.sh) for Linux and macOS.
 
@@ -53,17 +52,19 @@ You can modify the installation process by including flags. Run the help command
 curl -L https://coder.com/install.sh | sh -s -- --help
 ```
 
-> See [install](docs/install.md) for additional methods.
+> See [install](docs/install) for additional methods.
 
-Once installed, you can start a production deployment with a single command:
+Once installed, you can start a production deployment<sup>1</sup> with a single command:
 
 ```sh
 # Automatically sets up an external access URL on *.try.coder.app
-coder server --tunnel
+coder server
 
-# Requires a PostgreSQL instance and external access URL
+# Requires a PostgreSQL instance (version 13 or higher) and external access URL
 coder server --postgres-url <url> --access-url <url>
 ```
+
+> <sup>1</sup> The embedded database is great for trying out Coder with small deployments, but do consider using an external database for increased assurance and control.
 
 Use `coder --help` to get a complete list of flags and environment variables. Use our [quickstart guide](https://coder.com/docs/coder-oss/latest/quickstart) for a full walkthrough.
 
@@ -88,12 +89,14 @@ _Last updated: 5/27/22_
 
 ## Community and Support
 
-Join our community on [Discord](https://discord.gg/coder) and [Twitter](https://twitter.com/coderhq)!
+Join our community on [Discord](https://coder.com/chat?utm_source=github.com/coder/coder&utm_medium=github&utm_campaign=readme.md) and [Twitter](https://twitter.com/coderhq)!
 
 [Suggest improvements and report problems](https://github.com/coder/coder/issues/new/choose)
 
 ## Contributing
 
+If you're using Coder in your organization, please try to add your company name to the [ADOPTERS.md](./ADOPTERS.md). It really helps the project to gain momentum and credibility. It's a small contribution back to the project with a big impact.
+
 Read the [contributing docs](https://coder.com/docs/coder-oss/latest/CONTRIBUTING).
 
-Find our list of contributors [here](./docs/CONTRIBUTORS.md).
+Find our list of contributors [here](https://github.com/coder/coder/graphs/contributors).

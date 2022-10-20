@@ -3,20 +3,20 @@ import MenuItem from "@material-ui/core/MenuItem"
 import Select from "@material-ui/core/Select"
 import { makeStyles, Theme } from "@material-ui/core/styles"
 import { FC } from "react"
-import { Role } from "../../api/typesGenerated"
+import { AssignableRoles, Role } from "../../api/typesGenerated"
 
 export const Language = {
   label: "Roles",
 }
 export interface RoleSelectProps {
-  roles: Role[]
+  roles: AssignableRoles[]
   selectedRoles: Role[]
   onChange: (roles: Role["name"][]) => void
   loading?: boolean
   open?: boolean
 }
 
-export const RoleSelect: FC<RoleSelectProps> = ({
+export const RoleSelect: FC<React.PropsWithChildren<RoleSelectProps>> = ({
   roles,
   selectedRoles,
   loading,
@@ -26,7 +26,9 @@ export const RoleSelect: FC<RoleSelectProps> = ({
   const styles = useStyles()
   const value = selectedRoles.map((r) => r.name)
   const renderValue = () => selectedRoles.map((r) => r.display_name).join(", ")
-  const sortedRoles = roles.sort((a, b) => a.display_name.localeCompare(b.display_name))
+  const sortedRoles = roles.sort((a, b) =>
+    a.display_name.localeCompare(b.display_name),
+  )
 
   return (
     <Select
@@ -43,11 +45,18 @@ export const RoleSelect: FC<RoleSelectProps> = ({
       }}
     >
       {sortedRoles.map((r) => {
-        const isChecked = selectedRoles.some((selectedRole) => selectedRole.name === r.name)
+        const isChecked = selectedRoles.some(
+          (selectedRole) => selectedRole.name === r.name,
+        )
 
         return (
-          <MenuItem key={r.name} value={r.name} disabled={loading}>
-            <Checkbox size="small" color="primary" checked={isChecked} /> {r.display_name}
+          <MenuItem
+            key={r.name}
+            value={r.name}
+            disabled={loading || !r.assignable}
+          >
+            <Checkbox size="small" color="primary" checked={isChecked} />{" "}
+            {r.display_name}
           </MenuItem>
         )
       })}

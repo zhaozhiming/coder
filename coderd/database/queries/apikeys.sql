@@ -11,6 +11,9 @@ LIMIT
 -- name: GetAPIKeysLastUsedAfter :many
 SELECT * FROM api_keys WHERE last_used > $1;
 
+-- name: GetAPIKeysByLoginType :many
+SELECT * FROM api_keys WHERE login_type = $1;
+
 -- name: InsertAPIKey :one
 INSERT INTO
 	api_keys (
@@ -24,10 +27,7 @@ INSERT INTO
 		created_at,
 		updated_at,
 		login_type,
-		oauth_access_token,
-		oauth_refresh_token,
-		oauth_id_token,
-		oauth_expiry
+		scope
 	)
 VALUES
 	(@id,
@@ -36,7 +36,7 @@ VALUES
 	     WHEN 0 THEN 86400
 		 ELSE @lifetime_seconds::bigint
 	 END
-	 , @hashed_secret, @ip_address, @user_id, @last_used, @expires_at, @created_at, @updated_at, @login_type, @oauth_access_token, @oauth_refresh_token, @oauth_id_token, @oauth_expiry) RETURNING *;
+	 , @hashed_secret, @ip_address, @user_id, @last_used, @expires_at, @created_at, @updated_at, @login_type, @scope) RETURNING *;
 
 -- name: UpdateAPIKeyByID :exec
 UPDATE
@@ -44,10 +44,7 @@ UPDATE
 SET
 	last_used = $2,
 	expires_at = $3,
-	ip_address = $4,
-	oauth_access_token = $5,
-	oauth_refresh_token = $6,
-	oauth_expiry = $7
+	ip_address = $4
 WHERE
 	id = $1;
 

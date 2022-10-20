@@ -39,7 +39,11 @@ export const useStyles = makeStyles((theme) => ({
   },
 }))
 
-export const FormSection: FC<FormSectionProps> = ({ title, description, children }) => {
+export const FormSection: FC<React.PropsWithChildren<FormSectionProps>> = ({
+  title,
+  description,
+  children,
+}) => {
   const styles = useStyles()
 
   return (
@@ -49,7 +53,11 @@ export const FormSection: FC<FormSectionProps> = ({ title, description, children
           {title}
         </Typography>
         {description && (
-          <Typography className={styles.descriptionText} variant="body2" color="textSecondary">
+          <Typography
+            className={styles.descriptionText}
+            variant="body2"
+            color="textSecondary"
+          >
             {description}
           </Typography>
         )}

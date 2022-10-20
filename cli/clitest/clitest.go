@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,10 +22,22 @@ import (
 // New creates a CLI instance with a configuration pointed to a
 // temporary testing directory.
 func New(t *testing.T, args ...string) (*cobra.Command, config.Root) {
-	cmd := cli.Root()
+	return NewWithSubcommands(t, cli.AGPL(), args...)
+}
+
+func NewWithSubcommands(
+	t *testing.T, subcommands []*cobra.Command, args ...string,
+) (*cobra.Command, config.Root) {
+	cmd := cli.Root(subcommands)
 	dir := t.TempDir()
 	root := config.Root(dir)
 	cmd.SetArgs(append([]string{"--global-config", dir}, args...))
+
+	// We could consider using writers
+	// that log via t.Log here instead.
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
 	return cmd, root
 }
 
@@ -40,6 +53,9 @@ func SetupConfig(t *testing.T, client *codersdk.Client, root config.Root) {
 // new temporary testing directory.
 func CreateTemplateVersionSource(t *testing.T, responses *echo.Responses) string {
 	directory := t.TempDir()
+	f, err := ioutil.TempFile(directory, "*.tf")
+	require.NoError(t, err)
+	f.Close()
 	data, err := echo.Tar(responses)
 	require.NoError(t, err)
 	extractTar(t, data, directory)

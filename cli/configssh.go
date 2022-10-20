@@ -89,18 +89,23 @@ func sshFetchWorkspaceConfigs(ctx context.Context, client *codersdk.Client) ([]s
 			}
 
 			wc := sshWorkspaceConfig{Name: workspace.Name}
+			var agents []codersdk.WorkspaceAgent
 			for _, resource := range resources {
 				if resource.Transition != codersdk.WorkspaceTransitionStart {
 					continue
 				}
-				for _, agent := range resource.Agents {
-					hostname := workspace.Name
-					if len(resource.Agents) > 1 {
-						hostname += "." + agent.Name
-					}
-					wc.Hosts = append(wc.Hosts, hostname)
-				}
+				agents = append(agents, resource.Agents...)
 			}
+
+			// handle both WORKSPACE and WORKSPACE.AGENT syntax
+			if len(agents) == 1 {
+				wc.Hosts = append(wc.Hosts, workspace.Name)
+			}
+			for _, agent := range agents {
+				hostname := workspace.Name + "." + agent.Name
+				wc.Hosts = append(wc.Hosts, hostname)
+			}
+
 			workspaceConfigs[i] = wc
 
 			return nil
@@ -132,15 +137,13 @@ func configSSH() *cobra.Command {
 		sshConfigFile    string
 		sshConfigOpts    sshConfigOptions
 		usePreviousOpts  bool
-		coderConfigFile  string
 		dryRun           bool
 		skipProxyCommand bool
-		wireguard        bool
 	)
 	cmd := &cobra.Command{
 		Annotations: workspaceCommand,
 		Use:         "config-ssh",
-		Short:       "Populate your SSH config with Host entries for all of your workspaces",
+		Short:       "Add an SSH Host entry for your workspaces \"ssh coder.workspace\"",
 		Example: formatExamples(
 			example{
 				Description: "You can use -o (or --ssh-option) so set SSH options to be used for all your workspaces",
@@ -151,8 +154,9 @@ func configSSH() *cobra.Command {
 				Command:     "coder config-ssh --dry-run",
 			},
 		),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := createClient(cmd)
+		Args: cobra.ExactArgs(0),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}
@@ -165,9 +169,19 @@ func configSSH() *cobra.Command {
 				// that it's possible to capture the diff.
 				out = cmd.OutOrStderr()
 			}
-			binaryFile, err := currentBinPath(out)
+			coderBinary, err := currentBinPath(out)
 			if err != nil {
 				return err
+			}
+			escapedCoderBinary, err := sshConfigExecEscape(coderBinary)
+			if err != nil {
+				return xerrors.Errorf("escape coder binary for ssh failed: %w", err)
+			}
+
+			root := createConfig(cmd)
+			escapedGlobalConfig, err := sshConfigExecEscape(string(root))
+			if err != nil {
+				return xerrors.Errorf("escape global config for ssh failed: %w", err)
 			}
 
 			homedir, err := os.UserHomeDir()
@@ -192,15 +206,7 @@ func configSSH() *cobra.Command {
 			// Parse the previous configuration only if config-ssh
 			// has been run previously.
 			var lastConfig *sshConfigOptions
-			var ok bool
-			var coderConfigRaw []byte
-			if coderConfigFile, coderConfigRaw, ok = readDeprecatedCoderConfigFile(homedir, coderConfigFile); ok {
-				// Deprecated: Remove after migration period.
-				changes = append(changes, fmt.Sprintf("Remove old auto-generated coder config file at %s", coderConfigFile))
-				// Backwards compate, restore old options.
-				c := sshConfigParseLastOptions(bytes.NewReader(coderConfigRaw))
-				lastConfig = &c
-			} else if section, ok := sshConfigGetCoderSection(configRaw); ok {
+			if section, ok := sshConfigGetCoderSection(configRaw); ok {
 				c := sshConfigParseLastOptions(bytes.NewReader(section))
 				lastConfig = &c
 			}
@@ -231,6 +237,8 @@ func configSSH() *cobra.Command {
 					}
 					// Selecting "no" will use the last config.
 					sshConfigOpts = *lastConfig
+				} else {
+					changes = append(changes, "Use new SSH options")
 				}
 				// Only print when prompts are shown.
 				if yes, _ := cmd.Flags().GetBool("yes"); !yes {
@@ -239,15 +247,6 @@ func configSSH() *cobra.Command {
 			}
 
 			configModified := configRaw
-
-			// Check for the presence of the coder Include
-			// statement is present and add if missing.
-			// Deprecated: Remove after migration period.
-			if configModified, ok = removeDeprecatedSSHIncludeStatement(configModified); ok {
-				changes = append(changes, fmt.Sprintf("Remove %q from %s", "Include coder", sshConfigFile))
-			}
-
-			root := createConfig(cmd)
 
 			buf := &bytes.Buffer{}
 			before, after := sshConfigSplitOnCoderSection(configModified)
@@ -289,11 +288,13 @@ func configSSH() *cobra.Command {
 						"\tLogLevel ERROR",
 					)
 					if !skipProxyCommand {
-						if !wireguard {
-							configOptions = append(configOptions, fmt.Sprintf("\tProxyCommand %q --global-config %q ssh --stdio %s", binaryFile, root, hostname))
-						} else {
-							configOptions = append(configOptions, fmt.Sprintf("\tProxyCommand %q --global-config %q ssh --wireguard --stdio %s", binaryFile, root, hostname))
-						}
+						configOptions = append(
+							configOptions,
+							fmt.Sprintf(
+								"\tProxyCommand %s --global-config %s ssh --stdio %s",
+								escapedCoderBinary, escapedGlobalConfig, hostname,
+							),
+						)
 					}
 
 					_, _ = buf.WriteString(strings.Join(configOptions, "\n"))
@@ -307,17 +308,34 @@ func configSSH() *cobra.Command {
 			_, _ = buf.Write(after)
 
 			if !bytes.Equal(configModified, buf.Bytes()) {
-				changes = append(changes, fmt.Sprintf("Update coder config section in %s", sshConfigFile))
+				changes = append(changes, fmt.Sprintf("Update the coder section in %s", sshConfigFile))
 				configModified = buf.Bytes()
 			}
 
-			if len(changes) > 0 {
-				dryRunDisclaimer := ""
-				if dryRun {
-					dryRunDisclaimer = " (dry-run, no changes will be made)"
+			if len(changes) == 0 {
+				_, _ = fmt.Fprintf(out, "No changes to make.\n")
+				return nil
+			}
+
+			if dryRun {
+				_, _ = fmt.Fprintf(out, "Dry run, the following changes would be made to your SSH configuration:\n\n  * %s\n\n", strings.Join(changes, "\n  * "))
+
+				color := isTTYOut(cmd)
+				diff, err := diffBytes(sshConfigFile, configRaw, configModified, color)
+				if err != nil {
+					return xerrors.Errorf("diff failed: %w", err)
 				}
+				if len(diff) > 0 {
+					// Write diff to stdout.
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s", diff)
+				}
+
+				return nil
+			}
+
+			if len(changes) > 0 {
 				_, err = cliui.Prompt(cmd, cliui.PromptOptions{
-					Text:      fmt.Sprintf("The following changes will be made to your SSH configuration:\n\n    * %s\n\n  Continue?%s", strings.Join(changes, "\n    * "), dryRunDisclaimer),
+					Text:      fmt.Sprintf("The following changes will be made to your SSH configuration:\n\n    * %s\n\n  Continue?", strings.Join(changes, "\n    * ")),
 					IsConfirm: true,
 				})
 				if err != nil {
@@ -329,47 +347,18 @@ func configSSH() *cobra.Command {
 				}
 			}
 
-			if dryRun {
-				color := isTTYOut(cmd)
-				diffFns := []func() ([]byte, error){
-					func() ([]byte, error) { return diffBytes(sshConfigFile, configRaw, configModified, color) },
-				}
-				if len(coderConfigRaw) > 0 {
-					// Deprecated: Remove after migration period.
-					diffFns = append(diffFns, func() ([]byte, error) { return diffBytes(coderConfigFile, coderConfigRaw, nil, color) })
-				}
-
-				for _, diffFn := range diffFns {
-					diff, err := diffFn()
-					if err != nil {
-						return xerrors.Errorf("diff failed: %w", err)
-					}
-					if len(diff) > 0 {
-						// Write diff to stdout.
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s", diff)
-					}
-				}
-			} else {
-				if !bytes.Equal(configRaw, configModified) {
-					err = writeWithTempFileAndMove(sshConfigFile, bytes.NewReader(configModified))
-					if err != nil {
-						return xerrors.Errorf("write ssh config failed: %w", err)
-					}
-				}
-				// Deprecated: Remove after migration period.
-				if len(coderConfigRaw) > 0 {
-					err = os.Remove(coderConfigFile)
-					if err != nil {
-						return xerrors.Errorf("remove coder config failed: %w", err)
-					}
+			if !bytes.Equal(configRaw, configModified) {
+				err = writeWithTempFileAndMove(sshConfigFile, bytes.NewReader(configModified))
+				if err != nil {
+					return xerrors.Errorf("write ssh config failed: %w", err)
 				}
 			}
 
 			if len(workspaceConfigs) > 0 {
 				_, _ = fmt.Fprintln(out, "You should now be able to ssh into your workspace.")
-				_, _ = fmt.Fprintf(out, "For example, try running:\n\n\t$ ssh coder.%s\n\n", workspaceConfigs[0].Name)
+				_, _ = fmt.Fprintf(out, "For example, try running:\n\n\t$ ssh coder.%s\n", workspaceConfigs[0].Name)
 			} else {
-				_, _ = fmt.Fprint(out, "You don't have any workspaces yet, try creating one with:\n\n\t$ coder create <workspace>\n\n")
+				_, _ = fmt.Fprint(out, "You don't have any workspaces yet, try creating one with:\n\n\t$ coder create <workspace>\n")
 			}
 			return nil
 		},
@@ -380,13 +369,6 @@ func configSSH() *cobra.Command {
 	cmd.Flags().BoolVarP(&skipProxyCommand, "skip-proxy-command", "", false, "Specifies whether the ProxyCommand option should be skipped. Useful for testing.")
 	_ = cmd.Flags().MarkHidden("skip-proxy-command")
 	cliflag.BoolVarP(cmd.Flags(), &usePreviousOpts, "use-previous-options", "", "CODER_SSH_USE_PREVIOUS_OPTIONS", false, "Specifies whether or not to keep options from previous run of config-ssh.")
-	cliflag.BoolVarP(cmd.Flags(), &wireguard, "wireguard", "", "CODER_CONFIG_SSH_WIREGUARD", false, "Whether to use Wireguard for SSH tunneling.")
-	_ = cmd.Flags().MarkHidden("wireguard")
-
-	// Deprecated: Remove after migration period.
-	cmd.Flags().StringVar(&coderConfigFile, "test.ssh-coder-config-file", sshDefaultCoderConfigFileName, "Specifies the path to an Coder SSH config file. Useful for testing.")
-	_ = cmd.Flags().MarkHidden("test.ssh-coder-config-file")
-
 	cliui.AllowSkipPrompt(cmd)
 
 	return cmd
@@ -476,6 +458,11 @@ func writeWithTempFileAndMove(path string, r io.Reader) (err error) {
 	dir := filepath.Dir(path)
 	name := filepath.Base(path)
 
+	// Ensure that e.g. the ~/.ssh directory exists.
+	if err = os.MkdirAll(dir, 0o700); err != nil {
+		return xerrors.Errorf("create directory: %w", err)
+	}
+
 	// Create a tempfile in the same directory for ensuring write
 	// operation does not fail.
 	f, err := os.CreateTemp(dir, fmt.Sprintf(".%s.", name))
@@ -505,6 +492,52 @@ func writeWithTempFileAndMove(path string, r io.Reader) (err error) {
 	}
 
 	return nil
+}
+
+// sshConfigExecEscape quotes the string if it contains spaces, as per
+// `man 5 ssh_config`. However, OpenSSH uses exec in the users shell to
+// run the command, and as such the formatting/escape requirements
+// cannot simply be covered by `fmt.Sprintf("%q", path)`.
+//
+// Always escaping the path with `fmt.Sprintf("%q", path)` usually works
+// on most platforms, but double quotes sometimes break on Windows 10
+// (see #2853). This function takes a best-effort approach to improving
+// compatibility and covering edge cases.
+//
+// Given the following ProxyCommand:
+//
+//	ProxyCommand "/path/with space/coder" ssh --stdio work
+//
+// This is ~what OpenSSH would execute:
+//
+//	/bin/bash -c '"/path/with space/to/coder" ssh --stdio workspace'
+//
+// However, since it's actually an arg in C, the contents inside the
+// single quotes are interpreted as is, e.g. if there was a '\t', it
+// would be the literal string '\t', not a tab.
+//
+// See:
+//   - https://github.com/coder/coder/issues/2853
+//   - https://github.com/openssh/openssh-portable/blob/V_9_0_P1/sshconnect.c#L158-L167
+//   - https://github.com/PowerShell/openssh-portable/blob/v8.1.0.0/sshconnect.c#L231-L293
+//   - https://github.com/PowerShell/openssh-portable/blob/v8.1.0.0/contrib/win32/win32compat/w32fd.c#L1075-L1100
+func sshConfigExecEscape(path string) (string, error) {
+	// This is unlikely to ever happen, but newlines are allowed on
+	// certain filesystems, but cannot be used inside ssh config.
+	if strings.ContainsAny(path, "\n") {
+		return "", xerrors.Errorf("invalid path: %s", path)
+	}
+	// In the unlikely even that a path contains quotes, they must be
+	// escaped so that they are not interpreted as shell quotes.
+	if strings.Contains(path, "\"") {
+		path = strings.ReplaceAll(path, "\"", "\\\"")
+	}
+	// A space or a tab requires quoting, but tabs must not be escaped
+	// (\t) since OpenSSH interprets it as a literal \t, not a tab.
+	if strings.ContainsAny(path, " \t") {
+		path = fmt.Sprintf("\"%s\"", path) //nolint:gocritic // We don't want %q here.
+	}
+	return path, nil
 }
 
 // currentBinPath returns the path to the coder binary suitable for use in ssh
@@ -552,7 +585,7 @@ func currentBinPath(w io.Writer) (string, error) {
 
 // diffBytes takes two byte slices and diffs them as if they were in a
 // file named name.
-//nolint: revive // Color is an option, not a control coupling.
+// nolint: revive // Color is an option, not a control coupling.
 func diffBytes(name string, b1, b2 []byte, color bool) ([]byte, error) {
 	var buf bytes.Buffer
 	var opts []write.Option

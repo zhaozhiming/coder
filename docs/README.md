@@ -5,13 +5,9 @@ on your preferred clouds and servers.
 
 By building on top of common development interfaces (SSH) and infrastructure tools (Terraform), Coder aims to make the process of **provisioning** and **accessing** remote workspaces approachable for organizations of various sizes and stages of cloud-native maturity.
 
-> ⚠️ Coder OSS is in **alpha** state and is not ready for production use. For
-> production environments, please consider [Coder v1](https://coder.com/docs) or
-> [code-server](https://github.com/cdr/code-server).
-
 ## How it works
 
-Coder workspaces are represented with Terraform. But, no Terraform knowledge is
+Coder workspaces are represented with Terraform, but no Terraform knowledge is
 required to get started. We have a database of pre-made templates built into the
 product.
 
@@ -96,4 +92,6 @@ Azure, Google Cloud, Kubernetes, and more.
 - Coder is not a SaaS/fully-managed offering. You must host
   Coder on a cloud service (AWS, Azure, GCP) or your private data center.
 
-Next: [Templates](./templates.md)
+
+## Up next
+- Learn about [Templates](./templates.md)

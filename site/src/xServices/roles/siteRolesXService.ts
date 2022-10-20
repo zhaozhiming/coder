@@ -8,7 +8,7 @@ export const Language = {
 }
 
 type SiteRolesContext = {
-  roles?: TypesGen.Role[]
+  roles?: TypesGen.AssignableRoles[]
   getRolesError: Error | unknown
 }
 
@@ -19,17 +19,18 @@ type SiteRolesEvent = {
 export const siteRolesMachine = createMachine(
   {
     id: "siteRolesState",
-    initial: "idle",
+    predictableActionArguments: true,
+    tsTypes: {} as import("./siteRolesXService.typegen").Typegen0,
     schema: {
       context: {} as SiteRolesContext,
       events: {} as SiteRolesEvent,
       services: {
         getRoles: {
-          data: {} as TypesGen.Role[],
+          data: {} as TypesGen.AssignableRoles[],
         },
       },
     },
-    tsTypes: {} as import("./siteRolesXService.typegen").Typegen0,
+    initial: "idle",
     states: {
       idle: {
         on: {

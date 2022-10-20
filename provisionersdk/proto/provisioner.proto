@@ -87,13 +87,28 @@ message Agent {
     }
 }
 
+enum AppSharingLevel {
+	OWNER = 0;
+	AUTHENTICATED = 1;
+	PUBLIC = 2;
+}
+
 // App represents a dev-accessible application on the workspace.
 message App {
     string name = 1;
     string command = 2;
     string url = 3;
     string icon = 4;
-    bool relative_path = 5;
+    bool subdomain = 5;
+    Healthcheck healthcheck = 6;
+	AppSharingLevel sharing_level = 7;
+}
+
+// Healthcheck represents configuration for checking for app readiness.
+message Healthcheck {
+    string url = 1;
+    int32 interval = 2;
+    int32 threshold = 3;
 }
 
 // Resource represents created infrastructure.
@@ -101,6 +116,16 @@ message Resource {
     string name = 1;
     string type = 2;
     repeated Agent agents = 3;
+
+    message Metadata {
+        string key = 1;
+        string value = 2;
+        bool sensitive = 3;
+        bool is_null = 4;
+    }
+    repeated Metadata metadata = 4;
+    bool hide = 5;
+	string icon = 6;
 }
 
 // Parse consumes source-code from a directory to produce inputs.

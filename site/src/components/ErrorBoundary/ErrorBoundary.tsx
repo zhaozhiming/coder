@@ -1,7 +1,7 @@
-import { Component, ReactNode } from "react"
+import React, { Component, ReactNode } from "react"
 import { RuntimeErrorState } from "../RuntimeErrorState/RuntimeErrorState"
 
-type ErrorBoundaryProps = Record<string, unknown>
+type ErrorBoundaryProps = React.PropsWithChildren<unknown>
 
 interface ErrorBoundaryState {
   error: Error | null
@@ -11,7 +11,10 @@ interface ErrorBoundaryState {
  * Our app's Error Boundary
  * Read more about React Error Boundaries: https://reactjs.org/docs/error-boundaries.html
  */
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
   constructor(props: ErrorBoundaryProps) {
     super(props)
     this.state = { error: null }

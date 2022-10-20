@@ -21,15 +21,6 @@ LIMIT
 -- name: GetWorkspaceBuildsCreatedAfter :many
 SELECT * FROM workspace_builds WHERE created_at > $1;
 
--- name: GetWorkspaceBuildByWorkspaceIDAndName :one
-SELECT
-	*
-FROM
-	workspace_builds
-WHERE
-	workspace_id = $1
-	AND "name" = $2;
-
 -- name: GetWorkspaceBuildByWorkspaceIDAndBuildNumber :one
 SELECT
 	*
@@ -39,13 +30,14 @@ WHERE
 	workspace_id = $1
 	AND build_number = $2;
 
--- name: GetWorkspaceBuildByWorkspaceID :many
+-- name: GetWorkspaceBuildsByWorkspaceID :many
 SELECT
 	*
 FROM
 	workspace_builds
 WHERE
 	workspace_builds.workspace_id = $1
+	AND workspace_builds.created_at > @since
     AND CASE
 		-- This allows using the last element on a page as effectively a cursor.
 		-- This is an important option for scripts that need to paginate without
@@ -99,6 +91,19 @@ JOIN
     workspace_builds wb
 ON m.workspace_id = wb.workspace_id AND m.max_build_number = wb.build_number;
 
+-- name: GetLatestWorkspaceBuilds :many
+SELECT wb.*
+FROM (
+    SELECT
+        workspace_id, MAX(build_number) as max_build_number
+    FROM
+        workspace_builds
+    GROUP BY
+        workspace_id
+) m
+JOIN
+    workspace_builds wb
+ON m.workspace_id = wb.workspace_id AND m.max_build_number = wb.build_number;
 
 -- name: InsertWorkspaceBuild :one
 INSERT INTO
@@ -109,7 +114,6 @@ INSERT INTO
 		workspace_id,
 		template_version_id,
 		"build_number",
-		"name",
 		transition,
 		initiator_id,
 		job_id,
@@ -118,7 +122,7 @@ INSERT INTO
 		reason
 	)
 VALUES
-	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *;
+	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *;
 
 -- name: UpdateWorkspaceBuildByID :exec
 UPDATE

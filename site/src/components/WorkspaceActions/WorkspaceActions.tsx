@@ -1,160 +1,93 @@
-import Button from "@material-ui/core/Button"
-import Popover from "@material-ui/core/Popover"
-import { makeStyles } from "@material-ui/core/styles"
-import { FC, ReactNode, useEffect, useRef, useState } from "react"
-import { Workspace } from "../../api/typesGenerated"
-import { getWorkspaceStatus } from "../../util/workspace"
-import { CloseDropdown, OpenDropdown } from "../DropdownArrows/DropdownArrows"
-import { CancelButton, DeleteButton, StartButton, StopButton, UpdateButton } from "./ActionCtas"
-import { ButtonTypesEnum, WorkspaceStateActions, WorkspaceStateEnum } from "./constants"
+import { DropdownButton } from "components/DropdownButton/DropdownButton"
+import { FC, ReactNode, useMemo } from "react"
+import { useTranslation } from "react-i18next"
+import { WorkspaceStatus } from "../../api/typesGenerated"
+import {
+  ActionLoadingButton,
+  DeleteButton,
+  DisabledButton,
+  StartButton,
+  StopButton,
+  UpdateButton,
+} from "../DropdownButton/ActionCtas"
+import { ButtonMapping, ButtonTypesEnum, statusToAbilities } from "./constants"
 
 export interface WorkspaceActionsProps {
-  workspace: Workspace
+  workspaceStatus: WorkspaceStatus
+  isOutdated: boolean
   handleStart: () => void
   handleStop: () => void
   handleDelete: () => void
   handleUpdate: () => void
   handleCancel: () => void
+  isUpdating: boolean
+  children?: ReactNode
 }
 
 export const WorkspaceActions: FC<WorkspaceActionsProps> = ({
-  workspace,
+  workspaceStatus,
+  isOutdated,
   handleStart,
   handleStop,
   handleDelete,
   handleUpdate,
   handleCancel,
+  isUpdating,
 }) => {
-  const styles = useStyles()
-  const anchorRef = useRef<HTMLButtonElement>(null)
-  const [isOpen, setIsOpen] = useState(false)
-  const id = isOpen ? "action-popover" : undefined
-
-  const workspaceStatus: keyof typeof WorkspaceStateEnum = getWorkspaceStatus(
-    workspace.latest_build,
-  )
-  const workspaceState = WorkspaceStateEnum[workspaceStatus]
-  const actions = WorkspaceStateActions[workspaceState]
-
-  /**
-   * Ensures we close the popover before calling any action handler
-   */
-  useEffect(() => {
-    setIsOpen(false)
-    return () => {
-      setIsOpen(false)
-    }
-  }, [workspaceStatus])
-
-  const disabledButton = (
-    <Button disabled className={styles.actionButton}>
-      {workspaceState}
-    </Button>
-  )
-
-  type ButtonMapping = {
-    [key in ButtonTypesEnum]: ReactNode
-  }
+  const { t } = useTranslation("workspacePage")
+  const { canCancel, canAcceptJobs, actions } =
+    statusToAbilities[workspaceStatus]
+  const canBeUpdated = isOutdated && canAcceptJobs
 
   // A mapping of button type to the corresponding React component
   const buttonMapping: ButtonMapping = {
-    [ButtonTypesEnum.start]: <StartButton handleAction={handleStart} />,
-    [ButtonTypesEnum.stop]: <StopButton handleAction={handleStop} />,
-    [ButtonTypesEnum.delete]: <DeleteButton handleAction={handleDelete} />,
-    [ButtonTypesEnum.update]: (
-      <UpdateButton
-        handleAction={handleUpdate}
-        workspace={workspace}
-        workspaceStatus={workspaceStatus}
-      />
+    [ButtonTypesEnum.update]: <UpdateButton handleAction={handleUpdate} />,
+    [ButtonTypesEnum.updating]: (
+      <ActionLoadingButton label={t("actionButton.updating")} />
     ),
-    [ButtonTypesEnum.cancel]: <CancelButton handleAction={handleCancel} />,
-    [ButtonTypesEnum.canceling]: disabledButton,
-    [ButtonTypesEnum.disabled]: disabledButton,
-    [ButtonTypesEnum.queued]: disabledButton,
-    [ButtonTypesEnum.error]: disabledButton,
-    [ButtonTypesEnum.loading]: disabledButton,
+    [ButtonTypesEnum.start]: <StartButton handleAction={handleStart} />,
+    [ButtonTypesEnum.starting]: (
+      <ActionLoadingButton label={t("actionButton.starting")} />
+    ),
+    [ButtonTypesEnum.stop]: <StopButton handleAction={handleStop} />,
+    [ButtonTypesEnum.stopping]: (
+      <ActionLoadingButton label={t("actionButton.stopping")} />
+    ),
+    [ButtonTypesEnum.delete]: <DeleteButton handleAction={handleDelete} />,
+    [ButtonTypesEnum.deleting]: (
+      <ActionLoadingButton label={t("actionButton.deleting")} />
+    ),
+    [ButtonTypesEnum.canceling]: (
+      <DisabledButton label={t("disabledButton.canceling")} />
+    ),
+    [ButtonTypesEnum.deleted]: (
+      <DisabledButton label={t("disabledButton.deleted")} />
+    ),
+    [ButtonTypesEnum.pending]: (
+      <DisabledButton label={t("disabledButton.pending")} />
+    ),
   }
 
+  // memoize so this isn't recalculated every time we fetch the workspace
+  const [primaryAction, ...secondaryActions] = useMemo(
+    () =>
+      isUpdating
+        ? [ButtonTypesEnum.updating, ...actions]
+        : canBeUpdated
+        ? [ButtonTypesEnum.update, ...actions]
+        : actions,
+    [actions, canBeUpdated, isUpdating],
+  )
+
   return (
-    <span className={styles.buttonContainer}>
-      {/* primary workspace CTA */}
-      <span data-testid="primary-cta">{buttonMapping[actions.primary]}</span>
-
-      {/* popover toggle button */}
-      <Button
-        data-testid="workspace-actions-button"
-        aria-controls="workspace-actions-menu"
-        aria-haspopup="true"
-        className={styles.dropdownButton}
-        ref={anchorRef}
-        disabled={!actions.secondary.length}
-        onClick={() => {
-          setIsOpen(true)
-        }}
-      >
-        {isOpen ? <CloseDropdown /> : <OpenDropdown />}
-      </Button>
-
-      <Popover
-        classes={{ paper: styles.popoverPaper }}
-        id={id}
-        open={isOpen}
-        anchorEl={anchorRef.current}
-        onClose={() => setIsOpen(false)}
-        anchorOrigin={{
-          vertical: "bottom",
-          horizontal: "right",
-        }}
-        transformOrigin={{
-          vertical: "top",
-          horizontal: "right",
-        }}
-      >
-        {/* secondary workspace CTAs */}
-        <span data-testid="secondary-ctas">
-          {actions.secondary.map((action) => (
-            <div key={action} className={styles.popoverActionButton}>
-              {buttonMapping[action]}
-            </div>
-          ))}
-        </span>
-      </Popover>
-    </span>
+    <DropdownButton
+      primaryAction={buttonMapping[primaryAction]}
+      canCancel={canCancel}
+      handleCancel={handleCancel}
+      secondaryActions={secondaryActions.map((action) => ({
+        action,
+        button: buttonMapping[action],
+      }))}
+    />
   )
 }
-
-const useStyles = makeStyles((theme) => ({
-  buttonContainer: {
-    border: `1px solid ${theme.palette.divider}`,
-    borderRadius: `${theme.shape.borderRadius}px`,
-    display: "inline-block",
-  },
-  dropdownButton: {
-    border: "none",
-    borderLeft: `1px solid ${theme.palette.divider}`,
-    borderRadius: `0px ${theme.shape.borderRadius}px ${theme.shape.borderRadius}px 0px`,
-    minWidth: "unset",
-    width: "35px",
-    "& .MuiButton-label": {
-      marginRight: "8px",
-    },
-  },
-  actionButton: {
-    // Set fixed width for the action buttons so they will not change the size
-    // during the transitions
-    width: theme.spacing(16),
-    border: "none",
-    borderRadius: `${theme.shape.borderRadius}px 0px 0px ${theme.shape.borderRadius}px`,
-  },
-  popoverActionButton: {
-    "& .MuiButtonBase-root": {
-      backgroundColor: "unset",
-      justifyContent: "start",
-      padding: "0px",
-    },
-  },
-  popoverPaper: {
-    padding: `${theme.spacing(2)}px ${theme.spacing(3)}px ${theme.spacing(3)}px`,
-  },
-}))

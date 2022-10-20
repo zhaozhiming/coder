@@ -42,7 +42,7 @@ instances provisioned by Coder:
             "Resource": "*"
         },
         {
-            "Sid": "CoderResouces",
+            "Sid": "CoderResources",
             "Effect": "Allow",
             "Action": [
                 "ec2:DescribeInstances",
@@ -68,3 +68,9 @@ instances provisioned by Coder:
     ]
 }
 ```
+
+## code-server
+
+`code-server` is installed via the `startup_script` argument in the `coder_agent`
+resource block. The `coder_app` resource is defined to access `code-server` through
+the dashboard UI over `localhost:13337`.

@@ -57,7 +57,10 @@ func schedules() *cobra.Command {
 	scheduleCmd := &cobra.Command{
 		Annotations: workspaceCommand,
 		Use:         "schedule { show | start | stop | override } <workspace>",
-		Short:       "Modify scheduled stop and start times for your workspace",
+		Short:       "Schedule automated start and stop times for workspaces",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
 	}
 
 	scheduleCmd.AddCommand(
@@ -77,7 +80,7 @@ func scheduleShow() *cobra.Command {
 		Long:  scheduleShowDescriptionLong,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}
@@ -106,7 +109,7 @@ func scheduleStart() *cobra.Command {
 		Long:  scheduleStartDescriptionLong,
 		Args:  cobra.RangeArgs(2, 4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}
@@ -156,7 +159,7 @@ func scheduleStop() *cobra.Command {
 		Short: "Edit workspace stop schedule",
 		Long:  scheduleStopDescriptionLong,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}
@@ -207,7 +210,7 @@ func scheduleOverride() *cobra.Command {
 				return err
 			}
 
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return xerrors.Errorf("create client: %w", err)
 			}
@@ -280,8 +283,8 @@ func displaySchedule(workspace codersdk.Workspace, out io.Writer) error {
 		if workspace.LatestBuild.Transition != "start" {
 			schedNextStop = "-"
 		} else {
-			schedNextStop = workspace.LatestBuild.Deadline.In(loc).Format(timeFormat + " on " + dateFormat)
-			schedNextStop = fmt.Sprintf("%s (in %s)", schedNextStop, durationDisplay(time.Until(workspace.LatestBuild.Deadline)))
+			schedNextStop = workspace.LatestBuild.Deadline.Time.In(loc).Format(timeFormat + " on " + dateFormat)
+			schedNextStop = fmt.Sprintf("%s (in %s)", schedNextStop, durationDisplay(time.Until(workspace.LatestBuild.Deadline.Time)))
 		}
 	}
 

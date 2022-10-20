@@ -1,11 +1,11 @@
-import FormHelperText from "@material-ui/core/FormHelperText"
 import TextField from "@material-ui/core/TextField"
-import { FormikContextType, FormikErrors, useFormik } from "formik"
+import { FormikContextType, FormikTouched, useFormik } from "formik"
 import React from "react"
 import * as Yup from "yup"
 import { getFormHelpers, onChangeTrimmed } from "../../util/formUtils"
 import { LoadingButton } from "../LoadingButton/LoadingButton"
 import { Stack } from "../Stack/Stack"
+import { AlertBanner } from "components/AlertBanner/AlertBanner"
 
 interface SecurityFormValues {
   old_password: string
@@ -40,33 +40,41 @@ const validationSchema = Yup.object({
     }),
 })
 
-export type SecurityFormErrors = FormikErrors<SecurityFormValues>
 export interface SecurityFormProps {
   isLoading: boolean
   initialValues: SecurityFormValues
   onSubmit: (values: SecurityFormValues) => void
-  formErrors?: SecurityFormErrors
-  error?: string
+  updateSecurityError?: Error | unknown
+  // initialTouched is only used for testing the error state of the form.
+  initialTouched?: FormikTouched<SecurityFormValues>
 }
 
 export const SecurityForm: React.FC<SecurityFormProps> = ({
   isLoading,
   onSubmit,
   initialValues,
-  formErrors = {},
-  error,
+  updateSecurityError,
+  initialTouched,
 }) => {
-  const form: FormikContextType<SecurityFormValues> = useFormik<SecurityFormValues>({
-    initialValues,
-    validationSchema,
-    onSubmit,
-  })
-  const getFieldHelpers = getFormHelpers<SecurityFormValues>(form, formErrors)
+  const form: FormikContextType<SecurityFormValues> =
+    useFormik<SecurityFormValues>({
+      initialValues,
+      validationSchema,
+      onSubmit,
+      initialTouched,
+    })
+  const getFieldHelpers = getFormHelpers<SecurityFormValues>(
+    form,
+    updateSecurityError,
+  )
 
   return (
     <>
       <form onSubmit={form.handleSubmit}>
         <Stack>
+          {Boolean(updateSecurityError) && (
+            <AlertBanner severity="error" error={updateSecurityError} />
+          )}
           <TextField
             {...getFieldHelpers("old_password")}
             onChange={onChangeTrimmed(form)}
@@ -95,10 +103,12 @@ export const SecurityForm: React.FC<SecurityFormProps> = ({
             type="password"
           />
 
-          {error && <FormHelperText error>{error}</FormHelperText>}
-
           <div>
-            <LoadingButton loading={isLoading} type="submit" variant="contained">
+            <LoadingButton
+              loading={isLoading}
+              type="submit"
+              variant="contained"
+            >
               {isLoading ? "" : Language.updatePassword}
             </LoadingButton>
           </div>

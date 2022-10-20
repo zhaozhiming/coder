@@ -9,9 +9,11 @@ import (
 )
 
 const (
-	admin   string = "admin"
-	member  string = "member"
-	auditor string = "auditor"
+	owner         string = "owner"
+	member        string = "member"
+	templateAdmin string = "template-admin"
+	userAdmin     string = "user-admin"
+	auditor       string = "auditor"
 
 	orgAdmin  string = "organization-admin"
 	orgMember string = "organization-member"
@@ -22,8 +24,16 @@ const (
 // Once we have a database implementation, the "default" roles can be defined on the
 // site and orgs, and these functions can be removed.
 
-func RoleAdmin() string {
-	return roleName(admin, "")
+func RoleOwner() string {
+	return roleName(owner, "")
+}
+
+func RoleTemplateAdmin() string {
+	return roleName(templateAdmin, "")
+}
+
+func RoleUserAdmin() string {
+	return roleName(userAdmin, "")
 }
 
 func RoleMember() string {
@@ -49,12 +59,12 @@ var (
 	// https://github.com/coder/coder/issues/1194
 	builtInRoles = map[string]func(orgID string) Role{
 		// admin grants all actions to all resources.
-		admin: func(_ string) Role {
+		owner: func(_ string) Role {
 			return Role{
-				Name:        admin,
-				DisplayName: "Admin",
-				Site: permissions(map[Object][]Action{
-					ResourceWildcard: {WildcardSymbol},
+				Name:        owner,
+				DisplayName: "Owner",
+				Site: permissions(map[string][]Action{
+					ResourceWildcard.Type: {WildcardSymbol},
 				}),
 			}
 		},
@@ -64,15 +74,15 @@ var (
 			return Role{
 				Name:        member,
 				DisplayName: "",
-				Site: permissions(map[Object][]Action{
+				Site: permissions(map[string][]Action{
 					// All users can read all other users and know they exist.
-					ResourceUser:           {ActionRead},
-					ResourceRoleAssignment: {ActionRead},
+					ResourceUser.Type:           {ActionRead},
+					ResourceRoleAssignment.Type: {ActionRead},
 					// All users can see the provisioner daemons.
-					ResourceProvisionerDaemon: {ActionRead},
+					ResourceProvisionerDaemon.Type: {ActionRead},
 				}),
-				User: permissions(map[Object][]Action{
-					ResourceWildcard: {WildcardSymbol},
+				User: permissions(map[string][]Action{
+					ResourceWildcard.Type: {WildcardSymbol},
 				}),
 			}
 		},
@@ -82,12 +92,42 @@ var (
 		// TODO: Finish the auditor as we add resources.
 		auditor: func(_ string) Role {
 			return Role{
-				Name:        "auditor",
+				Name:        auditor,
 				DisplayName: "Auditor",
-				Site: permissions(map[Object][]Action{
+				Site: permissions(map[string][]Action{
 					// Should be able to read all template details, even in orgs they
 					// are not in.
-					ResourceTemplate: {ActionRead},
+					ResourceTemplate.Type: {ActionRead},
+					ResourceAuditLog.Type: {ActionRead},
+				}),
+			}
+		},
+
+		templateAdmin: func(_ string) Role {
+			return Role{
+				Name:        templateAdmin,
+				DisplayName: "Template Admin",
+				Site: permissions(map[string][]Action{
+					ResourceTemplate.Type: {ActionCreate, ActionRead, ActionUpdate, ActionDelete},
+					// CRUD all files, even those they did not upload.
+					ResourceFile.Type:      {ActionCreate, ActionRead, ActionUpdate, ActionDelete},
+					ResourceWorkspace.Type: {ActionRead},
+					// CRUD to provisioner daemons for now.
+					ResourceProvisionerDaemon.Type: {ActionCreate, ActionRead, ActionUpdate, ActionDelete},
+				}),
+			}
+		},
+
+		userAdmin: func(_ string) Role {
+			return Role{
+				Name:        userAdmin,
+				DisplayName: "User Admin",
+				Site: permissions(map[string][]Action{
+					ResourceRoleAssignment.Type: {ActionCreate, ActionRead, ActionUpdate, ActionDelete},
+					ResourceUser.Type:           {ActionCreate, ActionRead, ActionUpdate, ActionDelete},
+					// Full perms to manage org members
+					ResourceOrganizationMember.Type: {ActionCreate, ActionRead, ActionUpdate, ActionDelete},
+					ResourceGroup.Type:              {ActionCreate, ActionRead, ActionUpdate, ActionDelete},
 				}),
 			}
 		},
@@ -103,7 +143,6 @@ var (
 						{
 							Negate:       false,
 							ResourceType: "*",
-							ResourceID:   "*",
 							Action:       "*",
 						},
 					},
@@ -123,24 +162,19 @@ var (
 							// All org members can read the other members in their org.
 							ResourceType: ResourceOrganizationMember.Type,
 							Action:       ActionRead,
-							ResourceID:   "*",
 						},
 						{
 							// All org members can read the organization
 							ResourceType: ResourceOrganization.Type,
 							Action:       ActionRead,
-							ResourceID:   "*",
-						},
-						{
-							// All org members can read templates in the org
-							ResourceType: ResourceTemplate.Type,
-							Action:       ActionRead,
-							ResourceID:   "*",
 						},
 						{
 							// Can read available roles.
 							ResourceType: ResourceOrgRoleAssignment.Type,
-							ResourceID:   "*",
+							Action:       ActionRead,
+						},
+						{
+							ResourceType: ResourceGroup.Type,
 							Action:       ActionRead,
 						},
 					},
@@ -150,12 +184,70 @@ var (
 	}
 )
 
+var (
+	// assignRoles is a map of roles that can be assigned if a user has a given
+	// role.
+	// The first key is the actor role, the second is the roles they can assign.
+	//	map[actor_role][assign_role]<can_assign>
+	assignRoles = map[string]map[string]bool{
+		owner: {
+			owner:         true,
+			auditor:       true,
+			member:        true,
+			orgAdmin:      true,
+			orgMember:     true,
+			templateAdmin: true,
+			userAdmin:     true,
+		},
+		userAdmin: {
+			member:    true,
+			orgMember: true,
+		},
+		orgAdmin: {
+			orgAdmin:  true,
+			orgMember: true,
+		},
+	}
+)
+
+// CanAssignRole is a helper function that returns true if the user can assign
+// the specified role. This also can be used for removing a role.
+// This is a simple implementation for now.
+func CanAssignRole(roles []string, assignedRole string) bool {
+	assigned, assignedOrg, err := roleSplit(assignedRole)
+	if err != nil {
+		return false
+	}
+
+	for _, longRole := range roles {
+		role, orgID, err := roleSplit(longRole)
+		if err != nil {
+			continue
+		}
+
+		if orgID != "" && orgID != assignedOrg {
+			// Org roles only apply to the org they are assigned to.
+			continue
+		}
+
+		allowed, ok := assignRoles[role]
+		if !ok {
+			continue
+		}
+
+		if allowed[assigned] {
+			return true
+		}
+	}
+	return false
+}
+
 // RoleByName returns the permissions associated with a given role name.
 // This allows just the role names to be stored and expanded when required.
 func RoleByName(name string) (Role, error) {
 	roleName, orgID, err := roleSplit(name)
 	if err != nil {
-		return Role{}, xerrors.Errorf(":%w", err)
+		return Role{}, xerrors.Errorf("parse role name: %w", err)
 	}
 
 	roleFunc, ok := builtInRoles[roleName]
@@ -172,6 +264,18 @@ func RoleByName(name string) (Role, error) {
 	}
 
 	return role, nil
+}
+
+func RolesByNames(roleNames []string) ([]Role, error) {
+	roles := make([]Role, 0, len(roleNames))
+	for _, n := range roleNames {
+		r, err := RoleByName(n)
+		if err != nil {
+			return nil, xerrors.Errorf("get role permissions: %w", err)
+		}
+		roles = append(roles, r)
+	}
+	return roles, nil
 }
 
 func IsOrgRole(roleName string) (string, bool) {
@@ -257,7 +361,9 @@ func ChangeRoleSet(from []string, to []string) (added []string, removed []string
 }
 
 // roleName is a quick helper function to return
-// 	role_name:scopeID
+//
+//	role_name:scopeID
+//
 // If no scopeID is required, only 'role_name' is returned
 func roleName(name string, orgID string) string {
 	if orgID == "" {
@@ -284,15 +390,14 @@ func roleSplit(role string) (name string, orgID string, err error) {
 
 // permissions is just a helper function to make building roles that list out resources
 // and actions a bit easier.
-func permissions(perms map[Object][]Action) []Permission {
+func permissions(perms map[string][]Action) []Permission {
 	list := make([]Permission, 0, len(perms))
 	for k, actions := range perms {
 		for _, act := range actions {
 			act := act
 			list = append(list, Permission{
 				Negate:       false,
-				ResourceType: k.Type,
-				ResourceID:   WildcardSymbol,
+				ResourceType: k,
 				Action:       act,
 			})
 		}

@@ -1,7 +1,9 @@
 import { action } from "@storybook/addon-actions"
 import { Story } from "@storybook/react"
+import dayjs from "dayjs"
+import { canExtendDeadline, canReduceDeadline } from "util/schedule"
 import * as Mocks from "../../testHelpers/entities"
-import { Workspace, WorkspaceProps } from "./Workspace"
+import { Workspace, WorkspaceErrors, WorkspaceProps } from "./Workspace"
 
 export default {
   title: "components/Workspace",
@@ -11,8 +13,8 @@ export default {
 
 const Template: Story<WorkspaceProps> = (args) => <Workspace {...args} />
 
-export const Started = Template.bind({})
-Started.args = {
+export const Running = Template.bind({})
+Running.args = {
   bannerProps: {
     isLoading: false,
     onExtend: action("extend"),
@@ -24,81 +26,123 @@ Started.args = {
     onDeadlinePlus: () => {
       // do nothing, this is just for storybook
     },
+    deadlineMinusEnabled: () => {
+      return canReduceDeadline(dayjs(Mocks.MockWorkspace.latest_build.deadline))
+    },
+    deadlinePlusEnabled: () => {
+      return canExtendDeadline(
+        dayjs(Mocks.MockWorkspace.latest_build.deadline),
+        Mocks.MockWorkspace,
+        Mocks.MockTemplate,
+      )
+    },
   },
   workspace: Mocks.MockWorkspace,
   handleStart: action("start"),
   handleStop: action("stop"),
-  resources: [Mocks.MockWorkspaceResource, Mocks.MockWorkspaceResource2],
+  resources: [
+    Mocks.MockWorkspaceResource,
+    Mocks.MockWorkspaceResource2,
+    Mocks.MockWorkspaceResource3,
+  ],
   builds: [Mocks.MockWorkspaceBuild],
   canUpdateWorkspace: true,
+  workspaceErrors: {},
+  buildInfo: Mocks.MockBuildInfo,
+  template: Mocks.MockTemplate,
 }
 
 export const WithoutUpdateAccess = Template.bind({})
 WithoutUpdateAccess.args = {
-  ...Started.args,
+  ...Running.args,
   canUpdateWorkspace: false,
 }
 
 export const Starting = Template.bind({})
 Starting.args = {
-  ...Started.args,
+  ...Running.args,
   workspace: Mocks.MockStartingWorkspace,
 }
 
 export const Stopped = Template.bind({})
 Stopped.args = {
-  ...Started.args,
+  ...Running.args,
   workspace: Mocks.MockStoppedWorkspace,
 }
 
 export const Stopping = Template.bind({})
 Stopping.args = {
-  ...Started.args,
+  ...Running.args,
   workspace: Mocks.MockStoppingWorkspace,
 }
 
-export const Error = Template.bind({})
-Error.args = {
-  ...Started.args,
-  workspace: {
-    ...Mocks.MockFailedWorkspace,
-    latest_build: {
-      ...Mocks.MockWorkspaceBuild,
-      job: {
-        ...Mocks.MockProvisionerJob,
-        status: "failed",
-      },
-      transition: "start",
-    },
+export const Failed = Template.bind({})
+Failed.args = {
+  ...Running.args,
+  workspace: Mocks.MockFailedWorkspace,
+  workspaceErrors: {
+    [WorkspaceErrors.BUILD_ERROR]: Mocks.makeMockApiError({
+      message: "A workspace build is already active.",
+    }),
   },
 }
 
 export const Deleting = Template.bind({})
 Deleting.args = {
-  ...Started.args,
+  ...Running.args,
   workspace: Mocks.MockDeletingWorkspace,
 }
 
 export const Deleted = Template.bind({})
 Deleted.args = {
-  ...Started.args,
+  ...Running.args,
   workspace: Mocks.MockDeletedWorkspace,
 }
 
 export const Canceling = Template.bind({})
 Canceling.args = {
-  ...Started.args,
+  ...Running.args,
   workspace: Mocks.MockCancelingWorkspace,
 }
 
 export const Canceled = Template.bind({})
 Canceled.args = {
-  ...Started.args,
+  ...Running.args,
   workspace: Mocks.MockCanceledWorkspace,
 }
 
 export const Outdated = Template.bind({})
 Outdated.args = {
-  ...Started.args,
+  ...Running.args,
   workspace: Mocks.MockOutdatedWorkspace,
+}
+
+export const GetBuildsError = Template.bind({})
+GetBuildsError.args = {
+  ...Running.args,
+  workspaceErrors: {
+    [WorkspaceErrors.GET_BUILDS_ERROR]: Mocks.makeMockApiError({
+      message: "There is a problem fetching builds.",
+    }),
+  },
+}
+
+export const GetResourcesError = Template.bind({})
+GetResourcesError.args = {
+  ...Running.args,
+  workspaceErrors: {
+    [WorkspaceErrors.GET_RESOURCES_ERROR]: Mocks.makeMockApiError({
+      message: "There is a problem fetching workspace resources.",
+    }),
+  },
+}
+
+export const CancellationError = Template.bind({})
+CancellationError.args = {
+  ...Failed.args,
+  workspaceErrors: {
+    [WorkspaceErrors.CANCELLATION_ERROR]: Mocks.makeMockApiError({
+      message: "Job could not be canceled.",
+    }),
+  },
 }

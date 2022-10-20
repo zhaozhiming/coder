@@ -6,32 +6,39 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	chimw "github.com/go-chi/chi/v5/middleware"
+
+	"github.com/coder/coder/coderd/httpapi"
+	"github.com/coder/coder/coderd/tracing"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	requestsProcessed = promauto.NewCounterVec(prometheus.CounterOpts{
+func durationToFloatMs(d time.Duration) float64 {
+	return float64(d.Milliseconds())
+}
+
+func Prometheus(register prometheus.Registerer) func(http.Handler) http.Handler {
+	factory := promauto.With(register)
+	requestsProcessed := factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "coderd",
 		Subsystem: "api",
 		Name:      "requests_processed_total",
 		Help:      "The total number of processed API requests",
 	}, []string{"code", "method", "path"})
-	requestsConcurrent = promauto.NewGauge(prometheus.GaugeOpts{
+	requestsConcurrent := factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: "coderd",
 		Subsystem: "api",
 		Name:      "concurrent_requests",
 		Help:      "The number of concurrent API requests",
 	})
-	websocketsConcurrent = promauto.NewGauge(prometheus.GaugeOpts{
+	websocketsConcurrent := factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: "coderd",
 		Subsystem: "api",
 		Name:      "concurrent_websockets",
 		Help:      "The total number of concurrent API websockets",
 	})
-	websocketsDist = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	websocketsDist := factory.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "coderd",
 		Subsystem: "api",
 		Name:      "websocket_durations_ms",
@@ -45,66 +52,53 @@ var (
 			durationToFloatMs(30 * time.Hour),
 		},
 	}, []string{"path"})
-	requestsDist = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	requestsDist := factory.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "coderd",
 		Subsystem: "api",
 		Name:      "request_latencies_ms",
 		Help:      "Latency distribution of requests in milliseconds",
 		Buckets:   []float64{1, 5, 10, 25, 50, 100, 500, 1000, 5000, 10000, 30000},
 	}, []string{"method", "path"})
-)
 
-func durationToFloatMs(d time.Duration) float64 {
-	return float64(d.Milliseconds())
-}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var (
+				start  = time.Now()
+				method = r.Method
+				rctx   = chi.RouteContext(r.Context())
+			)
 
-func Prometheus(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var (
-			start  = time.Now()
-			method = r.Method
-			rctx   = chi.RouteContext(r.Context())
-		)
-		sw, ok := w.(chimw.WrapResponseWriter)
-		if !ok {
-			panic("dev error: http.ResponseWriter is not chimw.WrapResponseWriter")
-		}
+			sw, ok := w.(*tracing.StatusWriter)
+			if !ok {
+				panic("dev error: http.ResponseWriter is not *tracing.StatusWriter")
+			}
 
-		var (
-			dist     *prometheus.HistogramVec
-			distOpts []string
-		)
-		// We want to count websockets separately.
-		if isWebsocketUpgrade(r) {
-			websocketsConcurrent.Inc()
-			defer websocketsConcurrent.Dec()
+			var (
+				dist     *prometheus.HistogramVec
+				distOpts []string
+			)
+			// We want to count WebSockets separately.
+			if httpapi.IsWebsocketUpgrade(r) {
+				websocketsConcurrent.Inc()
+				defer websocketsConcurrent.Dec()
 
-			dist = websocketsDist
-		} else {
-			requestsConcurrent.Inc()
-			defer requestsConcurrent.Dec()
+				dist = websocketsDist
+			} else {
+				requestsConcurrent.Inc()
+				defer requestsConcurrent.Dec()
 
-			dist = requestsDist
-			distOpts = []string{method}
-		}
+				dist = requestsDist
+				distOpts = []string{method}
+			}
 
-		next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r)
 
-		path := rctx.RoutePattern()
-		distOpts = append(distOpts, path)
-		statusStr := strconv.Itoa(sw.Status())
+			path := rctx.RoutePattern()
+			distOpts = append(distOpts, path)
+			statusStr := strconv.Itoa(sw.Status)
 
-		requestsProcessed.WithLabelValues(statusStr, method, path).Inc()
-		dist.WithLabelValues(distOpts...).Observe(float64(time.Since(start)) / 1e6)
-	})
-}
-
-func isWebsocketUpgrade(r *http.Request) bool {
-	vs := r.Header.Values("Upgrade")
-	for _, v := range vs {
-		if v == "websocket" {
-			return true
-		}
+			requestsProcessed.WithLabelValues(statusStr, method, path).Inc()
+			dist.WithLabelValues(distOpts...).Observe(float64(time.Since(start)) / 1e6)
+		})
 	}
-	return false
 }

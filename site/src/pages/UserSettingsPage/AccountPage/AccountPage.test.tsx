@@ -4,7 +4,10 @@ import { GlobalSnackbar } from "../../../components/GlobalSnackbar/GlobalSnackba
 import * as AccountForm from "../../../components/SettingsAccountForm/SettingsAccountForm"
 import { renderWithAuth } from "../../../testHelpers/renderHelpers"
 import * as AuthXService from "../../../xServices/auth/authXService"
-import { AccountPage, Language } from "./AccountPage"
+import { AccountPage } from "./AccountPage"
+import i18next from "i18next"
+
+const { t } = i18next
 
 const renderPage = () => {
   return renderWithAuth(
@@ -21,7 +24,9 @@ const newData = {
 
 const fillAndSubmitForm = async () => {
   await waitFor(() => screen.findByLabelText("Username"))
-  fireEvent.change(screen.getByLabelText("Username"), { target: { value: newData.username } })
+  fireEvent.change(screen.getByLabelText("Username"), {
+    target: { value: newData.username },
+  })
   fireEvent.click(screen.getByText(AccountForm.Language.updateSettings))
 }
 
@@ -36,13 +41,17 @@ describe("AccountPage", () => {
           status: "active",
           organization_ids: ["123"],
           roles: [],
+          avatar_url: "",
+          last_seen_at: new Date().toString(),
           ...data,
         }),
       )
       const { user } = renderPage()
       await fillAndSubmitForm()
 
-      const successMessage = await screen.findByText(AuthXService.Language.successProfileUpdate)
+      const successMessage = await screen.findByText(
+        AuthXService.Language.successProfileUpdate,
+      )
       expect(successMessage).toBeDefined()
       expect(API.updateProfile).toBeCalledTimes(1)
       expect(API.updateProfile).toBeCalledWith(user.id, newData)
@@ -56,7 +65,9 @@ describe("AccountPage", () => {
         response: {
           data: {
             message: "Invalid profile",
-            validations: [{ detail: "Username is already in use", field: "username" }],
+            validations: [
+              { detail: "Username is already in use", field: "username" },
+            ],
           },
         },
       })
@@ -80,7 +91,10 @@ describe("AccountPage", () => {
       const { user } = renderPage()
       await fillAndSubmitForm()
 
-      const errorMessage = await screen.findByText(Language.unknownError)
+      const errorText = t("warningsAndErrors.somethingWentWrong", {
+        ns: "common",
+      })
+      const errorMessage = await screen.findByText(errorText)
       expect(errorMessage).toBeDefined()
       expect(API.updateProfile).toBeCalledTimes(1)
       expect(API.updateProfile).toBeCalledWith(user.id, newData)

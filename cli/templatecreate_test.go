@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"io"
 	"os"
 	"testing"
 
@@ -41,7 +40,7 @@ func TestTemplateCreate(t *testing.T) {
 	t.Parallel()
 	t.Run("Create", func(t *testing.T) {
 		t.Parallel()
-		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 		coderdtest.CreateFirstUser(t, client)
 		source := clitest.CreateTemplateVersionSource(t, &echo.Responses{
 			Parse:     echo.ParseComplete,
@@ -88,7 +87,7 @@ func TestTemplateCreate(t *testing.T) {
 
 	t.Run("WithParameter", func(t *testing.T) {
 		t.Parallel()
-		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 		coderdtest.CreateFirstUser(t, client)
 		source := clitest.CreateTemplateVersionSource(t, &echo.Responses{
 			Parse:           createTestParseResponse(),
@@ -124,7 +123,7 @@ func TestTemplateCreate(t *testing.T) {
 
 	t.Run("WithParameterFileContainingTheValue", func(t *testing.T) {
 		t.Parallel()
-		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 		coderdtest.CreateFirstUser(t, client)
 		source := clitest.CreateTemplateVersionSource(t, &echo.Responses{
 			Parse:           createTestParseResponse(),
@@ -132,6 +131,7 @@ func TestTemplateCreate(t *testing.T) {
 			ProvisionDryRun: echo.ProvisionComplete,
 		})
 		tempDir := t.TempDir()
+		removeTmpDirUntilSuccessAfterTest(t, tempDir)
 		parameterFile, _ := os.CreateTemp(tempDir, "testParameterFile*.yaml")
 		_, _ = parameterFile.WriteString("region: \"bananas\"")
 		cmd, root := clitest.New(t, "templates", "create", "my-template", "--directory", source, "--test.provisioner", string(database.ProvisionerTypeEcho), "--parameter-file", parameterFile.Name())
@@ -158,12 +158,11 @@ func TestTemplateCreate(t *testing.T) {
 		}
 
 		require.NoError(t, <-execDone)
-		removeTmpDirUntilSuccess(t, tempDir)
 	})
 
 	t.Run("WithParameterFileNotContainingTheValue", func(t *testing.T) {
 		t.Parallel()
-		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 		coderdtest.CreateFirstUser(t, client)
 		source := clitest.CreateTemplateVersionSource(t, &echo.Responses{
 			Parse:           createTestParseResponse(),
@@ -171,6 +170,7 @@ func TestTemplateCreate(t *testing.T) {
 			ProvisionDryRun: echo.ProvisionComplete,
 		})
 		tempDir := t.TempDir()
+		removeTmpDirUntilSuccessAfterTest(t, tempDir)
 		parameterFile, _ := os.CreateTemp(tempDir, "testParameterFile*.yaml")
 		_, _ = parameterFile.WriteString("zone: \"bananas\"")
 		cmd, root := clitest.New(t, "templates", "create", "my-template", "--directory", source, "--test.provisioner", string(database.ProvisionerTypeEcho), "--parameter-file", parameterFile.Name())
@@ -196,12 +196,11 @@ func TestTemplateCreate(t *testing.T) {
 		}
 
 		require.EqualError(t, <-execDone, "Parameter value absent in parameter file for \"region\"!")
-		removeTmpDirUntilSuccess(t, tempDir)
 	})
 
 	t.Run("Recreate template with same name (create, delete, create)", func(t *testing.T) {
 		t.Parallel()
-		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 		coderdtest.CreateFirstUser(t, client)
 
 		create := func() error {
@@ -219,8 +218,6 @@ func TestTemplateCreate(t *testing.T) {
 			}
 			cmd, root := clitest.New(t, args...)
 			clitest.SetupConfig(t, client, root)
-			cmd.SetOut(io.Discard)
-			cmd.SetErr(io.Discard)
 
 			return cmd.Execute()
 		}
@@ -233,8 +230,6 @@ func TestTemplateCreate(t *testing.T) {
 			}
 			cmd, root := clitest.New(t, args...)
 			clitest.SetupConfig(t, client, root)
-			cmd.SetOut(io.Discard)
-			cmd.SetErr(io.Discard)
 
 			return cmd.Execute()
 		}
@@ -245,6 +240,21 @@ func TestTemplateCreate(t *testing.T) {
 		require.NoError(t, err, "Template must be deleted without error")
 		err = create()
 		require.NoError(t, err, "Template must be recreated without error")
+	})
+
+	t.Run("WithParameterExceedingCharLimit", func(t *testing.T) {
+		t.Parallel()
+		client := coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
+		coderdtest.CreateFirstUser(t, client)
+		cmd, root := clitest.New(t, "templates", "create", "1234567890123456789012345678901234567891", "--test.provisioner", string(database.ProvisionerTypeEcho))
+		clitest.SetupConfig(t, client, root)
+
+		execDone := make(chan error)
+		go func() {
+			execDone <- cmd.Execute()
+		}()
+
+		require.EqualError(t, <-execDone, "Template name must be less than 32 characters")
 	})
 }
 
@@ -267,7 +277,7 @@ func createTestParseResponse() []*proto.Parse_Response {
 
 // Need this for Windows because of a known issue with Go:
 // https://github.com/golang/go/issues/52986
-func removeTmpDirUntilSuccess(t *testing.T, tempDir string) {
+func removeTmpDirUntilSuccessAfterTest(t *testing.T, tempDir string) {
 	t.Helper()
 	t.Cleanup(func() {
 		err := os.RemoveAll(tempDir)

@@ -28,7 +28,7 @@ func TestScheduleShow(t *testing.T) {
 			sched     = "30 7 * * 1-5"
 			schedCron = fmt.Sprintf("CRON_TZ=%s %s", tz, sched)
 			ttl       = 8 * time.Hour
-			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 			user      = coderdtest.CreateFirstUser(t, client)
 			version   = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 			_         = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
@@ -61,21 +61,19 @@ func TestScheduleShow(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx       = context.Background()
-			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 			user      = coderdtest.CreateFirstUser(t, client)
 			version   = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 			_         = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
 			project   = coderdtest.CreateTemplate(t, client, user.OrganizationID, version.ID)
 			workspace = coderdtest.CreateWorkspace(t, client, user.OrganizationID, project.ID, func(cwr *codersdk.CreateWorkspaceRequest) {
 				cwr.AutostartSchedule = nil
+				cwr.TTLMillis = nil
 			})
+			_         = coderdtest.AwaitWorkspaceBuildJob(t, client, workspace.LatestBuild.ID)
 			cmdArgs   = []string{"schedule", "show", workspace.Name}
 			stdoutBuf = &bytes.Buffer{}
 		)
-
-		// unset workspace TTL
-		require.NoError(t, client.UpdateWorkspaceTTL(ctx, workspace.ID, codersdk.UpdateWorkspaceTTLRequest{TTLMillis: nil}))
 
 		cmd, root := clitest.New(t, cmdArgs...)
 		clitest.SetupConfig(t, client, root)
@@ -96,7 +94,7 @@ func TestScheduleShow(t *testing.T) {
 		t.Parallel()
 
 		var (
-			client  = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+			client  = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 			user    = coderdtest.CreateFirstUser(t, client)
 			version = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 			_       = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
@@ -115,7 +113,7 @@ func TestScheduleStart(t *testing.T) {
 
 	var (
 		ctx       = context.Background()
-		client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+		client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 		user      = coderdtest.CreateFirstUser(t, client)
 		version   = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 		_         = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
@@ -168,7 +166,7 @@ func TestScheduleStop(t *testing.T) {
 	t.Parallel()
 
 	var (
-		client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+		client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 		user      = coderdtest.CreateFirstUser(t, client)
 		version   = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 		_         = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
@@ -221,7 +219,7 @@ func TestScheduleOverride(t *testing.T) {
 		var (
 			err       error
 			ctx       = context.Background()
-			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 			user      = coderdtest.CreateFirstUser(t, client)
 			version   = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 			_         = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
@@ -239,7 +237,7 @@ func TestScheduleOverride(t *testing.T) {
 
 		// Assert test invariant: workspace build has a deadline set equal to now plus ttl
 		initDeadline := time.Now().Add(time.Duration(*workspace.TTLMillis) * time.Millisecond)
-		require.WithinDuration(t, initDeadline, workspace.LatestBuild.Deadline, time.Minute)
+		require.WithinDuration(t, initDeadline, workspace.LatestBuild.Deadline.Time, time.Minute)
 
 		cmd, root := clitest.New(t, cmdArgs...)
 		clitest.SetupConfig(t, client, root)
@@ -252,7 +250,7 @@ func TestScheduleOverride(t *testing.T) {
 		// Then: the deadline of the latest build is updated assuming the units are minutes
 		updated, err := client.Workspace(ctx, workspace.ID)
 		require.NoError(t, err)
-		require.WithinDuration(t, expectedDeadline, updated.LatestBuild.Deadline, time.Minute)
+		require.WithinDuration(t, expectedDeadline, updated.LatestBuild.Deadline.Time, time.Minute)
 	})
 
 	t.Run("InvalidDuration", func(t *testing.T) {
@@ -262,7 +260,7 @@ func TestScheduleOverride(t *testing.T) {
 		var (
 			err       error
 			ctx       = context.Background()
-			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 			user      = coderdtest.CreateFirstUser(t, client)
 			version   = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 			_         = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
@@ -279,7 +277,7 @@ func TestScheduleOverride(t *testing.T) {
 
 		// Assert test invariant: workspace build has a deadline set equal to now plus ttl
 		initDeadline := time.Now().Add(time.Duration(*workspace.TTLMillis) * time.Millisecond)
-		require.WithinDuration(t, initDeadline, workspace.LatestBuild.Deadline, time.Minute)
+		require.WithinDuration(t, initDeadline, workspace.LatestBuild.Deadline.Time, time.Minute)
 
 		cmd, root := clitest.New(t, cmdArgs...)
 		clitest.SetupConfig(t, client, root)
@@ -298,7 +296,7 @@ func TestScheduleOverride(t *testing.T) {
 		var (
 			err       error
 			ctx       = context.Background()
-			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+			client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 			user      = coderdtest.CreateFirstUser(t, client)
 			version   = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 			_         = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
@@ -349,7 +347,7 @@ func TestScheduleOverride(t *testing.T) {
 func TestScheduleStartDefaults(t *testing.T) {
 	t.Setenv("TZ", "Pacific/Tongatapu")
 	var (
-		client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+		client    = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
 		user      = coderdtest.CreateFirstUser(t, client)
 		version   = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
 		_         = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)

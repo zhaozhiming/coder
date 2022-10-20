@@ -26,14 +26,16 @@ export interface TerminalLinkProps {
  * If no user name is provided "me" is used however it makes the link not
  * shareable.
  */
-export const TerminalLink: FC<TerminalLinkProps> = ({
+export const TerminalLink: FC<React.PropsWithChildren<TerminalLinkProps>> = ({
   agentName,
   userName = "me",
   workspaceName,
   className,
 }) => {
   const styles = useStyles()
-  const href = `/@${userName}/${workspaceName}${agentName ? `.${agentName}` : ""}/terminal`
+  const href = `/@${userName}/${workspaceName}${
+    agentName ? `.${agentName}` : ""
+  }/terminal`
 
   return (
     <Link
@@ -42,7 +44,11 @@ export const TerminalLink: FC<TerminalLinkProps> = ({
       target="_blank"
       onClick={(event) => {
         event.preventDefault()
-        window.open(href, Language.terminalTitle(generateRandomString(12)), "width=900,height=600")
+        window.open(
+          href,
+          Language.terminalTitle(generateRandomString(12)),
+          "width=900,height=600",
+        )
       }}
     >
       <Button startIcon={<ComputerIcon />} size="small">

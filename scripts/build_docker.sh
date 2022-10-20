@@ -3,14 +3,14 @@
 # This script builds a Docker image of Coder containing the given binary, for
 # the given architecture. Only linux binaries are supported at this time.
 #
-# Usage: ./build_docker.sh --arch amd64 [--version 1.2.3] [--push] path/to/coder
+# Usage: ./build_docker.sh --arch amd64 [--version 1.2.3] [--target image_tag] [--push] path/to/coder
 #
 # The --arch parameter is required and accepts a Golang arch specification. It
 # will be automatically mapped to a suitable architecture that Docker accepts
 # before being passed to `docker buildx build`.
 #
 # The image will be built and tagged against the image tag returned by
-# ./image_tag.sh.
+# ./image_tag.sh unless a --target parameter is supplied.
 #
 # If no version is specified, defaults to the version from ./version.sh.
 #
@@ -23,15 +23,20 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 arch=""
+image_tag=""
 version=""
 push=0
 
-args="$(getopt -o "" -l arch:,version:,push -- "$@")"
+args="$(getopt -o "" -l arch:,target:,version:,push -- "$@")"
 eval set -- "$args"
 while true; do
 	case "$1" in
 	--arch)
 		arch="$2"
+		shift 2
+		;;
+	--target)
+		image_tag="$2"
 		shift 2
 		;;
 	--version)
@@ -65,7 +70,9 @@ if [[ "$version" == "" ]]; then
 	version="$(execrelative ./version.sh)"
 fi
 
-image_tag="$(execrelative ./image_tag.sh --arch "$arch" --version="$version")"
+if [[ "$image_tag" == "" ]]; then
+	image_tag="$(execrelative ./image_tag.sh --arch "$arch" --version="$version")"
+fi
 
 if [[ "$#" != 1 ]]; then
 	error "Exactly one argument must be provided to this script, $# were supplied"
@@ -90,19 +97,33 @@ fi
 # hardlinked from.
 cdroot
 temp_dir="$(TMPDIR="$(dirname "$input_file")" mktemp -d)"
-ln -P "$input_file" "$temp_dir/coder"
-ln -P Dockerfile "$temp_dir/"
+ln "$input_file" "$temp_dir/coder"
+ln Dockerfile "$temp_dir/"
 
 cd "$temp_dir"
 
-build_args=(
-	--platform "$arch"
-	--build-arg "CODER_VERSION=$version"
-	--tag "$image_tag"
-)
-
 log "--- Building Docker image for $arch ($image_tag)"
-docker buildx build "${build_args[@]}" . 1>&2
+
+# Pull the base image, copy the /etc/group and /etc/passwd files out of it, and
+# add the coder group and user. We have to do this in a separate step instead of
+# using the RUN directive in the Dockerfile because you can't use RUN if you're
+# building the image for a different architecture than the host.
+docker pull --platform "$arch" alpine:latest 1>&2
+
+temp_container_id="$(docker create --platform "$arch" alpine:latest)"
+docker cp "$temp_container_id":/etc/group ./group 1>&2
+docker cp "$temp_container_id":/etc/passwd ./passwd 1>&2
+docker rm "$temp_container_id" 1>&2
+
+echo "coder:x:1000:coder" >>./group
+echo "coder:x:1000:1000::/:/bin/sh" >>./passwd
+mkdir ./empty-dir
+
+docker buildx build \
+	--platform "$arch" \
+	--build-arg "CODER_VERSION=$version" \
+	--tag "$image_tag" \
+	. 1>&2
 
 cdroot
 rm -rf "$temp_dir"

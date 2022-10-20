@@ -2,12 +2,15 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/briandowns/spinner"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
@@ -32,7 +35,7 @@ func templateCreate() *cobra.Command {
 		Short: "Create a template from the current directory or as specified by flag",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}
@@ -47,6 +50,10 @@ func templateCreate() *cobra.Command {
 				templateName = filepath.Base(directory)
 			} else {
 				templateName = args[0]
+			}
+
+			if utf8.RuneCountInString(templateName) > 31 {
+				return xerrors.Errorf("Template name must be less than 32 characters")
 			}
 
 			_, err = client.TemplateByName(cmd.Context(), organization.ID, templateName)
@@ -85,7 +92,7 @@ func templateCreate() *cobra.Command {
 				Client:        client,
 				Organization:  organization,
 				Provisioner:   database.ProvisionerType(provisioner),
-				FileHash:      resp.Hash,
+				FileID:        resp.ID,
 				ParameterFile: parameterFile,
 			})
 			if err != nil {
@@ -138,10 +145,11 @@ func templateCreate() *cobra.Command {
 }
 
 type createValidTemplateVersionArgs struct {
+	Name          string
 	Client        *codersdk.Client
 	Organization  codersdk.Organization
 	Provisioner   database.ProvisionerType
-	FileHash      string
+	FileID        uuid.UUID
 	ParameterFile string
 	// Template is only required if updating a template's active version.
 	Template *codersdk.Template
@@ -156,8 +164,9 @@ func createValidTemplateVersion(cmd *cobra.Command, args createValidTemplateVers
 	client := args.Client
 
 	req := codersdk.CreateTemplateVersionRequest{
+		Name:            args.Name,
 		StorageMethod:   codersdk.ProvisionerStorageMethodFile,
-		StorageSource:   args.FileHash,
+		FileID:          args.FileID,
 		Provisioner:     codersdk.ProvisionerType(args.Provisioner),
 		ParameterValues: parameters,
 	}
@@ -177,7 +186,7 @@ func createValidTemplateVersion(cmd *cobra.Command, args createValidTemplateVers
 		Cancel: func() error {
 			return client.CancelTemplateVersion(cmd.Context(), version.ID)
 		},
-		Logs: func() (<-chan codersdk.ProvisionerJobLog, error) {
+		Logs: func() (<-chan codersdk.ProvisionerJobLog, io.Closer, error) {
 			return client.TemplateVersionLogsAfter(cmd.Context(), version.ID, before)
 		},
 	})

@@ -14,7 +14,7 @@ You can do everything you can locally and more with your Coder workspace, so
 whatever workflow and tools you already use to manage secrets may be brought
 over.
 
-For most, this workflow is simply:
+Often, this workflow is simply:
 
 1. Give your users their secrets in advance
 1. Your users write them to a persistent file after
@@ -24,10 +24,20 @@ For most, this workflow is simply:
 We show parameters in cleartext around the product. Assume anyone with view
 access to a workspace can also see its parameters.
 
+## SSH Keys
+
+Coder generates SSH key pairs for each user. This can be used as an authentication mechanism for
+git providers or other tools. Within workspaces, git will attempt to use this key within workspaces
+via the `$GIT_SSH_COMMAND` environment variable.
+
+Users can view their public key in their account settings:
+
+![SSH keys in account settings](./images/ssh-keys.png)
+
 ## Dynamic Secrets
 
 Dynamic secrets are attached to the workspace lifecycle and automatically
-injected into the workspace. For a little bit of up front template work,
+injected into the workspace. With a little bit of up front template work,
 they make life simpler for both the end user and the security team.
 
 This method is limited to
@@ -42,7 +52,7 @@ resource "twilio_iam_api_key" "api_key" {
   friendly_name = "Test API Key"
 }
 
-resource "coder_agent" "dev" {
+resource "coder_agent" "main" {
   # ...
   env = {
     # Let users access the secret via $TWILIO_API_SECRET
@@ -55,8 +65,28 @@ A catch-all variation of this approach is dynamically provisioning a cloud servi
 for each workspace and then making the relevant secrets available via the cloud's secret management
 system.
 
-## Coder SSH Key
+## Displaying Secrets
 
-Coder automatically inserts an account-wide SSH key into each workspace. In MacOS
-and Linux this key is at `~/.ssh/id_ecdsa`. You can view and
-regenerate the key in the dashboard at Settings > SSH keys.
+While you can inject secrets into the workspace via environment variables, you
+can also show them in the Workspace UI with [`coder_metadata`](https://registry.terraform.io/providers/coder/coder/latest/docs/resources/metadata).
+
+![secret UI](./images/secret-metadata-ui.png)
+
+Can be produced with
+
+```hcl
+resource "twilio_iam_api_key" "api_key" {
+  account_sid   = "ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+  friendly_name = "Test API Key"
+}
+
+
+resource "coder_metadata" "twilio_key" {
+  resource_id = twilio_iam_api_key.api_key.id
+  item {
+    key = "secret"
+    value = twilio_iam_api_key.api_key.secret
+    sensitive = true
+  }
+}
+```

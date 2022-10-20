@@ -29,10 +29,7 @@ func TestOrganizationParam(t *testing.T) {
 			r          = httptest.NewRequest("GET", "/", nil)
 			hashed     = sha256.Sum256([]byte(secret))
 		)
-		r.AddCookie(&http.Cookie{
-			Name:  codersdk.SessionTokenKey,
-			Value: fmt.Sprintf("%s-%s", id, secret),
-		})
+		r.Header.Set(codersdk.SessionCustomHeader, fmt.Sprintf("%s-%s", id, secret))
 
 		userID := uuid.New()
 		username, err := cryptorand.String(8)
@@ -53,6 +50,8 @@ func TestOrganizationParam(t *testing.T) {
 			HashedSecret: hashed[:],
 			LastUsed:     database.Now(),
 			ExpiresAt:    database.Now().Add(time.Minute),
+			LoginType:    database.LoginTypePassword,
+			Scope:        database.APIKeyScopeAll,
 		})
 		require.NoError(t, err)
 		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, chi.NewRouteContext()))
@@ -68,7 +67,10 @@ func TestOrganizationParam(t *testing.T) {
 			rtr  = chi.NewRouter()
 		)
 		rtr.Use(
-			httpmw.ExtractAPIKey(db, nil, false),
+			httpmw.ExtractAPIKey(httpmw.ExtractAPIKeyConfig{
+				DB:              db,
+				RedirectToLogin: false,
+			}),
 			httpmw.ExtractOrganizationParam(db),
 		)
 		rtr.Get("/", nil)
@@ -88,7 +90,10 @@ func TestOrganizationParam(t *testing.T) {
 		)
 		chi.RouteContext(r.Context()).URLParams.Add("organization", uuid.NewString())
 		rtr.Use(
-			httpmw.ExtractAPIKey(db, nil, false),
+			httpmw.ExtractAPIKey(httpmw.ExtractAPIKeyConfig{
+				DB:              db,
+				RedirectToLogin: false,
+			}),
 			httpmw.ExtractOrganizationParam(db),
 		)
 		rtr.Get("/", nil)
@@ -108,7 +113,10 @@ func TestOrganizationParam(t *testing.T) {
 		)
 		chi.RouteContext(r.Context()).URLParams.Add("organization", "not-a-uuid")
 		rtr.Use(
-			httpmw.ExtractAPIKey(db, nil, false),
+			httpmw.ExtractAPIKey(httpmw.ExtractAPIKeyConfig{
+				DB:              db,
+				RedirectToLogin: false,
+			}),
 			httpmw.ExtractOrganizationParam(db),
 		)
 		rtr.Get("/", nil)
@@ -136,8 +144,11 @@ func TestOrganizationParam(t *testing.T) {
 		chi.RouteContext(r.Context()).URLParams.Add("organization", organization.ID.String())
 		chi.RouteContext(r.Context()).URLParams.Add("user", u.ID.String())
 		rtr.Use(
-			httpmw.ExtractAPIKey(db, nil, false),
-			httpmw.ExtractUserParam(db),
+			httpmw.ExtractAPIKey(httpmw.ExtractAPIKeyConfig{
+				DB:              db,
+				RedirectToLogin: false,
+			}),
+			httpmw.ExtractUserParam(db, false),
 			httpmw.ExtractOrganizationParam(db),
 			httpmw.ExtractOrganizationMemberParam(db),
 		)
@@ -173,9 +184,12 @@ func TestOrganizationParam(t *testing.T) {
 		chi.RouteContext(r.Context()).URLParams.Add("organization", organization.ID.String())
 		chi.RouteContext(r.Context()).URLParams.Add("user", user.ID.String())
 		rtr.Use(
-			httpmw.ExtractAPIKey(db, nil, false),
+			httpmw.ExtractAPIKey(httpmw.ExtractAPIKeyConfig{
+				DB:              db,
+				RedirectToLogin: false,
+			}),
 			httpmw.ExtractOrganizationParam(db),
-			httpmw.ExtractUserParam(db),
+			httpmw.ExtractUserParam(db, false),
 			httpmw.ExtractOrganizationMemberParam(db),
 		)
 		rtr.Get("/", func(rw http.ResponseWriter, r *http.Request) {

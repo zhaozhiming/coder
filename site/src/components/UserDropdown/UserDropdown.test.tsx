@@ -1,13 +1,18 @@
-import { screen } from "@testing-library/react"
+import { fireEvent, screen } from "@testing-library/react"
 import { MockUser } from "../../testHelpers/entities"
 import { render } from "../../testHelpers/renderHelpers"
 import { Language } from "../UserDropdownContent/UserDropdownContent"
 import { UserDropdown, UserDropdownProps } from "./UsersDropdown"
 
 const renderAndClick = async (props: Partial<UserDropdownProps> = {}) => {
-  render(<UserDropdown user={props.user ?? MockUser} onSignOut={props.onSignOut ?? jest.fn()} />)
+  render(
+    <UserDropdown
+      user={props.user ?? MockUser}
+      onSignOut={props.onSignOut ?? jest.fn()}
+    />,
+  )
   const trigger = await screen.findByTestId("user-dropdown-trigger")
-  trigger.click()
+  fireEvent.click(trigger)
 }
 
 describe("UserDropdown", () => {

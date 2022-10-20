@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,17 +11,53 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/xerrors"
 
 	"github.com/coder/coder/coderd/httpapi"
 	"github.com/coder/coder/codersdk"
 )
 
+func TestInternalServerError(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NoError", func(t *testing.T) {
+		t.Parallel()
+		w := httptest.NewRecorder()
+		httpapi.InternalServerError(w, nil)
+
+		var resp codersdk.Response
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		require.NotEmpty(t, resp.Message)
+		require.Empty(t, resp.Detail)
+	})
+
+	t.Run("WithError", func(t *testing.T) {
+		t.Parallel()
+		var (
+			w       = httptest.NewRecorder()
+			httpErr = xerrors.New("error!")
+		)
+
+		httpapi.InternalServerError(w, httpErr)
+
+		var resp codersdk.Response
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		require.NotEmpty(t, resp.Message)
+		require.Equal(t, httpErr.Error(), resp.Detail)
+	})
+}
+
 func TestWrite(t *testing.T) {
 	t.Parallel()
 	t.Run("NoErrors", func(t *testing.T) {
 		t.Parallel()
+		ctx := context.Background()
 		rw := httptest.NewRecorder()
-		httpapi.Write(rw, http.StatusOK, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusOK, codersdk.Response{
 			Message: "Wow.",
 		})
 		var m map[string]interface{}
@@ -35,18 +72,20 @@ func TestRead(t *testing.T) {
 	t.Parallel()
 	t.Run("EmptyStruct", func(t *testing.T) {
 		t.Parallel()
+		ctx := context.Background()
 		rw := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", "/", bytes.NewBufferString("{}"))
 		v := struct{}{}
-		require.True(t, httpapi.Read(rw, r, &v))
+		require.True(t, httpapi.Read(ctx, rw, r, &v))
 	})
 
 	t.Run("NoBody", func(t *testing.T) {
 		t.Parallel()
+		ctx := context.Background()
 		rw := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", "/", nil)
 		var v json.RawMessage
-		require.False(t, httpapi.Read(rw, r, v))
+		require.False(t, httpapi.Read(ctx, rw, r, v))
 	})
 
 	t.Run("Validate", func(t *testing.T) {
@@ -54,11 +93,12 @@ func TestRead(t *testing.T) {
 		type toValidate struct {
 			Value string `json:"value" validate:"required"`
 		}
+		ctx := context.Background()
 		rw := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", "/", bytes.NewBufferString(`{"value":"hi"}`))
 
 		var validate toValidate
-		require.True(t, httpapi.Read(rw, r, &validate))
+		require.True(t, httpapi.Read(ctx, rw, r, &validate))
 		require.Equal(t, "hi", validate.Value)
 	})
 
@@ -67,11 +107,12 @@ func TestRead(t *testing.T) {
 		type toValidate struct {
 			Value string `json:"value" validate:"required"`
 		}
+		ctx := context.Background()
 		rw := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", "/", bytes.NewBufferString("{}"))
 
 		var validate toValidate
-		require.False(t, httpapi.Read(rw, r, &validate))
+		require.False(t, httpapi.Read(ctx, rw, r, &validate))
 		var v codersdk.Response
 		err := json.NewDecoder(rw.Body).Decode(&v)
 		require.NoError(t, err)
@@ -79,71 +120,6 @@ func TestRead(t *testing.T) {
 		require.Equal(t, "value", v.Validations[0].Field)
 		require.Equal(t, "Validation failed for tag \"required\" with value: \"\"", v.Validations[0].Detail)
 	})
-}
-
-func TestReadUsername(t *testing.T) {
-	t.Parallel()
-	// Tests whether usernames are valid or not.
-	testCases := []struct {
-		Username string
-		Valid    bool
-	}{
-		{"1", true},
-		{"12", true},
-		{"123", true},
-		{"12345678901234567890", true},
-		{"123456789012345678901", true},
-		{"a", true},
-		{"a1", true},
-		{"a1b2", true},
-		{"a1b2c3d4e5f6g7h8i9j0", true},
-		{"a1b2c3d4e5f6g7h8i9j0k", true},
-		{"aa", true},
-		{"abc", true},
-		{"abcdefghijklmnopqrst", true},
-		{"abcdefghijklmnopqrstu", true},
-		{"wow-test", true},
-
-		{"", false},
-		{" ", false},
-		{" a", false},
-		{" a ", false},
-		{" 1", false},
-		{"1 ", false},
-		{" aa", false},
-		{"aa ", false},
-		{" 12", false},
-		{"12 ", false},
-		{" a1", false},
-		{"a1 ", false},
-		{" abcdefghijklmnopqrstu", false},
-		{"abcdefghijklmnopqrstu ", false},
-		{" 123456789012345678901", false},
-		{" a1b2c3d4e5f6g7h8i9j0k", false},
-		{"a1b2c3d4e5f6g7h8i9j0k ", false},
-		{"bananas_wow", false},
-		{"test--now", false},
-
-		{"123456789012345678901234567890123", false},
-		{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", false},
-		{"123456789012345678901234567890123123456789012345678901234567890123", false},
-	}
-	type toValidate struct {
-		Username string `json:"username" validate:"username"`
-	}
-	for _, testCase := range testCases {
-		testCase := testCase
-		t.Run(testCase.Username, func(t *testing.T) {
-			t.Parallel()
-			rw := httptest.NewRecorder()
-			data, err := json.Marshal(toValidate{testCase.Username})
-			require.NoError(t, err)
-			r := httptest.NewRequest("POST", "/", bytes.NewBuffer(data))
-
-			var validate toValidate
-			require.Equal(t, testCase.Valid, httpapi.Read(rw, r, &validate))
-		})
-	}
 }
 
 func WebsocketCloseMsg(t *testing.T) {

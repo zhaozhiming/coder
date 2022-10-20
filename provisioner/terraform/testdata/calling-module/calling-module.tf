@@ -2,17 +2,17 @@ terraform {
   required_providers {
     coder = {
       source  = "coder/coder"
-      version = "0.4.2"
+      version = "0.5.3"
     }
   }
 }
 
-resource "coder_agent" "dev" {
+resource "coder_agent" "main" {
   os   = "linux"
   arch = "amd64"
 }
 
 module "module" {
   source = "./module"
-  script = coder_agent.dev.init_script
+  script = coder_agent.main.init_script
 }

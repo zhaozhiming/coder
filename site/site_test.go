@@ -3,7 +3,6 @@ package site_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/coder/coder/site"
+	"github.com/coder/coder/testutil"
 )
 
 func TestCaching(t *testing.T) {
@@ -48,7 +49,7 @@ func TestCaching(t *testing.T) {
 	defer srv.Close()
 
 	// Create a context
-	ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancelFunc := context.WithTimeout(context.Background(), testutil.WaitShort)
 	defer cancelFunc()
 
 	testCases := []struct {
@@ -108,7 +109,7 @@ func TestServingFiles(t *testing.T) {
 	defer srv.Close()
 
 	// Create a context
-	ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancelFunc := context.WithTimeout(context.Background(), testutil.WaitShort)
 	defer cancelFunc()
 
 	testCases := []struct {
@@ -296,7 +297,7 @@ func TestServingBin(t *testing.T) {
 			},
 		},
 		{
-			name: "Serve local fs when embedd fs empty",
+			name: "Serve local fs when embed fs empty",
 			fs:   fstest.MapFS{},
 			reqs: []req{
 				{url: "/bin/coder-linux-amd64", wantStatus: http.StatusNotFound},
@@ -304,17 +305,17 @@ func TestServingBin(t *testing.T) {
 			},
 		},
 		{
-			name: "Serve embedd fs",
+			name: "Serve embed fs",
 			fs: fstest.MapFS{
 				"bin/GITKEEP": &fstest.MapFile{
 					Data: []byte(""),
 				},
 				"bin/coder-linux-amd64": &fstest.MapFile{
-					Data: []byte("embedd"),
+					Data: []byte("embed"),
 				},
 			},
 			reqs: []req{
-				{url: "/bin/coder-linux-amd64", wantStatus: http.StatusOK, wantBody: []byte("embedd")},
+				{url: "/bin/coder-linux-amd64", wantStatus: http.StatusOK, wantBody: []byte("embed")},
 				{url: "/bin/GITKEEP", wantStatus: http.StatusOK, wantBody: []byte("")},
 			},
 		},
@@ -337,7 +338,7 @@ func TestServingBin(t *testing.T) {
 			defer srv.Close()
 
 			// Create a context
-			ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancelFunc := context.WithTimeout(context.Background(), testutil.WaitShort)
 			defer cancelFunc()
 
 			for _, tr := range tt.reqs {
@@ -440,40 +441,32 @@ func TestExtractOrReadBinFS(t *testing.T) {
 	})
 }
 
-func TestServeAPIResponse(t *testing.T) {
+func TestRenderStaticErrorPage(t *testing.T) {
 	t.Parallel()
 
-	// Create a test server
-	rootFS := fstest.MapFS{
-		"index.html": &fstest.MapFile{
-			Data: []byte(`{"code":{{ .APIResponse.StatusCode }},"message":"{{ .APIResponse.Message }}"}`),
-		},
+	d := site.ErrorPageData{
+		Status:       http.StatusBadGateway,
+		Title:        "Bad Gateway 1234",
+		Description:  "shout out colin",
+		RetryEnabled: true,
+		DashboardURL: "https://example.com",
 	}
-	binFS := http.FS(fstest.MapFS{})
 
-	apiResponse := site.APIResponse{
-		StatusCode: http.StatusBadGateway,
-		Message:    "This could be an error message!",
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(site.WithAPIResponse(r.Context(), apiResponse))
-		site.Handler(rootFS, binFS).ServeHTTP(w, r)
-	}))
-	defer srv.Close()
+	rw := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	site.RenderStaticErrorPage(rw, r, d)
 
-	req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
+	resp := rw.Result()
+	defer resp.Body.Close()
+	require.Equal(t, d.Status, resp.StatusCode)
+	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
+
+	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	var body struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	}
-	data, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	t.Logf("resp: %q", data)
-	err = json.Unmarshal(data, &body)
-	require.NoError(t, err)
-	require.Equal(t, apiResponse.StatusCode, body.Code)
-	require.Equal(t, apiResponse.Message, body.Message)
+	bodyStr := string(body)
+	require.Contains(t, bodyStr, strconv.Itoa(d.Status))
+	require.Contains(t, bodyStr, d.Title)
+	require.Contains(t, bodyStr, d.Description)
+	require.Contains(t, bodyStr, "Retry")
+	require.Contains(t, bodyStr, d.DashboardURL)
 }

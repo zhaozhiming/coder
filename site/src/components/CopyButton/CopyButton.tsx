@@ -2,7 +2,7 @@ import IconButton from "@material-ui/core/Button"
 import { makeStyles } from "@material-ui/core/styles"
 import Tooltip from "@material-ui/core/Tooltip"
 import Check from "@material-ui/icons/Check"
-import React, { useState } from "react"
+import { useClipboard } from "hooks/useClipboard"
 import { combineClasses } from "../../util/combineClasses"
 import { FileCopyIcon } from "../Icons/FileCopyIcon"
 
@@ -11,57 +11,37 @@ interface CopyButtonProps {
   ctaCopy?: string
   wrapperClassName?: string
   buttonClassName?: string
+  tooltipTitle?: string
+}
+
+export const Language = {
+  tooltipTitle: "Copy to clipboard",
+  ariaLabel: "Copy to clipboard",
 }
 
 /**
  * Copy button used inside the CodeBlock component internally
  */
-export const CopyButton: React.FC<CopyButtonProps> = ({
+export const CopyButton: React.FC<React.PropsWithChildren<CopyButtonProps>> = ({
   text,
   ctaCopy,
   wrapperClassName = "",
   buttonClassName = "",
+  tooltipTitle = Language.tooltipTitle,
 }) => {
   const styles = useStyles()
-  const [isCopied, setIsCopied] = useState<boolean>(false)
-
-  const copyToClipboard = async (): Promise<void> => {
-    try {
-      await window.navigator.clipboard.writeText(text)
-      setIsCopied(true)
-      window.setTimeout(() => {
-        setIsCopied(false)
-      }, 1000)
-    } catch (err) {
-      const input = document.createElement("input")
-      input.value = text
-      document.body.appendChild(input)
-      input.focus()
-      input.select()
-      const result = document.execCommand("copy")
-      document.body.removeChild(input)
-      if (result) {
-        setIsCopied(true)
-        window.setTimeout(() => {
-          setIsCopied(false)
-        }, 1000)
-      } else {
-        const wrappedErr = new Error("copyToClipboard: failed to copy text to clipboard")
-        if (err instanceof Error) {
-          wrappedErr.stack = err.stack
-        }
-        console.error(wrappedErr)
-      }
-    }
-  }
+  const { isCopied, copy: copyToClipboard } = useClipboard(text)
 
   return (
-    <Tooltip title="Copy to Clipboard" placement="top">
-      <div className={combineClasses([styles.copyButtonWrapper, wrapperClassName])}>
+    <Tooltip title={tooltipTitle} placement="top">
+      <div
+        className={combineClasses([styles.copyButtonWrapper, wrapperClassName])}
+      >
         <IconButton
           className={combineClasses([styles.copyButton, buttonClassName])}
           onClick={copyToClipboard}
           size="small"
+          aria-label={Language.ariaLabel}
         >
           {isCopied ? (
             <Check className={styles.fileCopyIcon} />
@@ -78,12 +58,9 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
 const useStyles = makeStyles((theme) => ({
   copyButtonWrapper: {
     display: "flex",
-    marginLeft: theme.spacing(1),
   },
   copyButton: {
-    borderRadius: 7,
-    background: theme.palette.background.default,
-    color: theme.palette.primary.contrastText,
+    borderRadius: theme.shape.borderRadius,
     padding: theme.spacing(0.85),
     minWidth: 32,
 

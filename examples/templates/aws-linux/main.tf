@@ -2,7 +2,7 @@ terraform {
   required_providers {
     coder = {
       source  = "coder/coder"
-      version = "0.4.3"
+      version = "0.5.3"
     }
   }
 }
@@ -72,10 +72,32 @@ data "aws_ami" "ubuntu" {
   owners = ["099720109477"] # Canonical
 }
 
-resource "coder_agent" "dev" {
-  arch = "amd64"
-  auth = "aws-instance-identity"
-  os   = "linux"
+resource "coder_agent" "main" {
+  arch           = "amd64"
+  auth           = "aws-instance-identity"
+  os             = "linux"
+  startup_script = <<EOT
+    #!/bin/bash
+
+    # install and start code-server
+    curl -fsSL https://code-server.dev/install.sh | sh  | tee code-server-install.log
+    code-server --auth none --port 13337 | tee code-server-install.log &
+  EOT
+}
+
+resource "coder_app" "code-server" {
+  agent_id  = coder_agent.main.id
+  name      = "code-server"
+  url       = "http://localhost:13337/?folder=/home/coder"
+  icon      = "/icon/code.svg"
+  subdomain = false
+  share     = "owner"
+
+  healthcheck {
+    url       = "http://localhost:13337/healthz"
+    interval  = 3
+    threshold = 10
+  }
 }
 
 locals {
@@ -109,7 +131,7 @@ Content-Transfer-Encoding: 7bit
 Content-Disposition: attachment; filename="userdata.txt"
 
 #!/bin/bash
-sudo -u ${local.linux_user} sh -c '${coder_agent.dev.init_script}'
+sudo -u ${local.linux_user} sh -c '${coder_agent.main.init_script}'
 --//--
 EOT
 
@@ -138,20 +160,35 @@ sudo shutdown -h now
 --//--
 EOT
 
-  # Ensure Coder username is a valid Linux username
-  linux_user = lower(substr(data.coder_workspace.me.owner, 0, 32))
+  linux_user = "coder" # Ensure this user/group does not exist in your VM image
 
 }
 
 resource "aws_instance" "dev" {
   ami               = data.aws_ami.ubuntu.id
   availability_zone = "${var.region}a"
-  instance_type     = "${var.instance_type}"
+  instance_type     = var.instance_type
 
   user_data = data.coder_workspace.me.transition == "start" ? local.user_data_start : local.user_data_end
   tags = {
     Name = "coder-${data.coder_workspace.me.owner}-${data.coder_workspace.me.name}"
     # Required if you are using our example policy, see template README
     Coder_Provisioned = "true"
+  }
+}
+
+resource "coder_metadata" "workspace_info" {
+  resource_id = aws_instance.dev.id
+  item {
+    key   = "region"
+    value = var.region
+  }
+  item {
+    key   = "instance type"
+    value = aws_instance.dev.instance_type
+  }
+  item {
+    key   = "disk"
+    value = "${aws_instance.dev.root_block_device[0].volume_size} GiB"
   }
 }

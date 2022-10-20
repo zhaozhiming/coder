@@ -14,18 +14,10 @@ func start() *cobra.Command {
 	cmd := &cobra.Command{
 		Annotations: workspaceCommand,
 		Use:         "start <workspace>",
-		Short:       "Build a workspace with the start state",
+		Short:       "Start a workspace",
 		Args:        cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := cliui.Prompt(cmd, cliui.PromptOptions{
-				Text:      "Confirm start workspace?",
-				IsConfirm: true,
-			})
-			if err != nil {
-				return err
-			}
-
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}

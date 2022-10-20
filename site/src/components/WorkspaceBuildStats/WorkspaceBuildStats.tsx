@@ -3,7 +3,7 @@ import { makeStyles, useTheme } from "@material-ui/core/styles"
 import { FC } from "react"
 import { Link as RouterLink } from "react-router-dom"
 import { WorkspaceBuild } from "../../api/typesGenerated"
-import { CardRadius, MONOSPACE_FONT_FAMILY } from "../../theme/constants"
+import { MONOSPACE_FONT_FAMILY } from "../../theme/constants"
 import { combineClasses } from "../../util/combineClasses"
 import {
   displayWorkspaceBuildDuration,
@@ -15,7 +15,9 @@ export interface WorkspaceBuildStatsProps {
   build: WorkspaceBuild
 }
 
-export const WorkspaceBuildStats: FC<WorkspaceBuildStatsProps> = ({ build }) => {
+export const WorkspaceBuildStats: FC<WorkspaceBuildStatsProps> = ({
+  build,
+}) => {
   const styles = useStyles()
   const theme = useTheme()
   const status = getDisplayWorkspaceBuildStatus(theme, build)
@@ -37,12 +39,16 @@ export const WorkspaceBuildStats: FC<WorkspaceBuildStatsProps> = ({ build }) => 
 
       <div className={styles.statItem}>
         <span className={styles.statsLabel}>Duration</span>
-        <span className={styles.statsValue}>{displayWorkspaceBuildDuration(build)}</span>
+        <span className={styles.statsValue}>
+          {displayWorkspaceBuildDuration(build)}
+        </span>
       </div>
       <div className={styles.statsDivider} />
       <div className={styles.statItem}>
         <span className={styles.statsLabel}>Started at</span>
-        <span className={styles.statsValue}>{new Date(build.created_at).toLocaleString()}</span>
+        <span className={styles.statsValue}>
+          {new Date(build.created_at).toLocaleString()}
+        </span>
       </div>
       <div className={styles.statsDivider} />
       <div className={styles.statItem}>
@@ -54,7 +60,9 @@ export const WorkspaceBuildStats: FC<WorkspaceBuildStatsProps> = ({ build }) => 
       <div className={styles.statsDivider} />
       <div className={styles.statItem}>
         <span className={styles.statsLabel}>Action</span>
-        <span className={combineClasses([styles.statsValue, styles.capitalize])}>
+        <span
+          className={combineClasses([styles.statsValue, styles.capitalize])}
+        >
           {build.transition}
         </span>
       </div>
@@ -72,7 +80,7 @@ const useStyles = makeStyles((theme) => ({
     paddingLeft: theme.spacing(2),
     paddingRight: theme.spacing(2),
     backgroundColor: theme.palette.background.paper,
-    borderRadius: CardRadius,
+    borderRadius: theme.shape.borderRadius,
     display: "flex",
     alignItems: "center",
     color: theme.palette.text.secondary,

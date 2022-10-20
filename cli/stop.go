@@ -14,7 +14,7 @@ func stop() *cobra.Command {
 	cmd := &cobra.Command{
 		Annotations: workspaceCommand,
 		Use:         "stop <workspace>",
-		Short:       "Build a workspace with the stop state",
+		Short:       "Stop a workspace",
 		Args:        cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, err := cliui.Prompt(cmd, cliui.PromptOptions{
@@ -25,7 +25,7 @@ func stop() *cobra.Command {
 				return err
 			}
 
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}

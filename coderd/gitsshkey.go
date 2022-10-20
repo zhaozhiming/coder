@@ -3,6 +3,7 @@ package coderd
 import (
 	"net/http"
 
+	"github.com/coder/coder/coderd/audit"
 	"github.com/coder/coder/coderd/database"
 	"github.com/coder/coder/coderd/gitsshkey"
 	"github.com/coder/coder/coderd/httpapi"
@@ -12,46 +13,58 @@ import (
 )
 
 func (api *API) regenerateGitSSHKey(rw http.ResponseWriter, r *http.Request) {
-	user := httpmw.UserParam(r)
+	var (
+		ctx               = r.Context()
+		user              = httpmw.UserParam(r)
+		auditor           = api.Auditor.Load()
+		aReq, commitAudit = audit.InitRequest[database.GitSSHKey](rw, &audit.RequestParams{
+			Audit:   *auditor,
+			Log:     api.Logger,
+			Request: r,
+			Action:  database.AuditActionWrite,
+		})
+	)
+	defer commitAudit()
 
 	if !api.Authorize(r, rbac.ActionUpdate, rbac.ResourceUserData.WithOwner(user.ID.String())) {
 		httpapi.ResourceNotFound(rw)
 		return
 	}
 
+	oldKey, err := api.Database.GetGitSSHKey(ctx, user.ID)
+	if err != nil {
+		httpapi.InternalServerError(rw, err)
+		return
+	}
+
+	aReq.Old = oldKey
+
 	privateKey, publicKey, err := gitsshkey.Generate(api.SSHKeygenAlgorithm)
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error generating a new SSH keypair.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	err = api.Database.UpdateGitSSHKey(r.Context(), database.UpdateGitSSHKeyParams{
+	newKey, err := api.Database.UpdateGitSSHKey(ctx, database.UpdateGitSSHKeyParams{
 		UserID:     user.ID,
 		UpdatedAt:  database.Now(),
 		PrivateKey: privateKey,
 		PublicKey:  publicKey,
 	})
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error updating user's git SSH key.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	newKey, err := api.Database.GetGitSSHKey(r.Context(), user.ID)
-	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
-			Message: "Internal error fetching user's git SSH key.",
-			Detail:  err.Error(),
-		})
-		return
-	}
+	aReq.New = newKey
 
-	httpapi.Write(rw, http.StatusOK, codersdk.GitSSHKey{
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.GitSSHKey{
 		UserID:    newKey.UserID,
 		CreatedAt: newKey.CreatedAt,
 		UpdatedAt: newKey.UpdatedAt,
@@ -61,6 +74,7 @@ func (api *API) regenerateGitSSHKey(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) gitSSHKey(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	user := httpmw.UserParam(r)
 
 	if !api.Authorize(r, rbac.ActionRead, rbac.ResourceUserData.WithOwner(user.ID.String())) {
@@ -68,16 +82,16 @@ func (api *API) gitSSHKey(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gitSSHKey, err := api.Database.GetGitSSHKey(r.Context(), user.ID)
+	gitSSHKey, err := api.Database.GetGitSSHKey(ctx, user.ID)
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching user's SSH key.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	httpapi.Write(rw, http.StatusOK, codersdk.GitSSHKey{
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.GitSSHKey{
 		UserID:    gitSSHKey.UserID,
 		CreatedAt: gitSSHKey.CreatedAt,
 		UpdatedAt: gitSSHKey.UpdatedAt,
@@ -87,44 +101,45 @@ func (api *API) gitSSHKey(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) agentGitSSHKey(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	agent := httpmw.WorkspaceAgent(r)
-	resource, err := api.Database.GetWorkspaceResourceByID(r.Context(), agent.ResourceID)
+	resource, err := api.Database.GetWorkspaceResourceByID(ctx, agent.ResourceID)
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching workspace resource.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	job, err := api.Database.GetWorkspaceBuildByJobID(r.Context(), resource.JobID)
+	job, err := api.Database.GetWorkspaceBuildByJobID(ctx, resource.JobID)
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching workspace build.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	workspace, err := api.Database.GetWorkspaceByID(r.Context(), job.WorkspaceID)
+	workspace, err := api.Database.GetWorkspaceByID(ctx, job.WorkspaceID)
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching workspace.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	gitSSHKey, err := api.Database.GetGitSSHKey(r.Context(), workspace.OwnerID)
+	gitSSHKey, err := api.Database.GetGitSSHKey(ctx, workspace.OwnerID)
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching git SSH key.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	httpapi.Write(rw, http.StatusOK, codersdk.AgentGitSSHKey{
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.AgentGitSSHKey{
 		PublicKey:  gitSSHKey.PublicKey,
 		PrivateKey: gitSSHKey.PrivateKey,
 	})

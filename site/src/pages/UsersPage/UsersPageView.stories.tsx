@@ -1,5 +1,9 @@
 import { ComponentMeta, Story } from "@storybook/react"
-import { MockSiteRoles, MockUser, MockUser2 } from "../../testHelpers/renderHelpers"
+import {
+  MockSiteRoles,
+  MockUser,
+  MockUser2,
+} from "../../testHelpers/renderHelpers"
 import { UsersPageView, UsersPageViewProps } from "./UsersPageView"
 
 export default {
@@ -7,7 +11,9 @@ export default {
   component: UsersPageView,
 } as ComponentMeta<typeof UsersPageView>
 
-const Template: Story<UsersPageViewProps> = (args) => <UsersPageView {...args} />
+const Template: Story<UsersPageViewProps> = (args) => (
+  <UsersPageView {...args} />
+)
 
 export const Admin = Template.bind({})
 Admin.args = {
@@ -15,6 +21,14 @@ Admin.args = {
   roles: MockSiteRoles,
   canCreateUser: true,
   canEditUsers: true,
+}
+
+export const SmallViewport = Template.bind({})
+SmallViewport.args = {
+  ...Admin.args,
+}
+SmallViewport.parameters = {
+  chromatic: { viewports: [600] },
 }
 
 export const Member = Template.bind({})

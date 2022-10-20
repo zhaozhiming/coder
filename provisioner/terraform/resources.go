@@ -25,16 +25,41 @@ type agentAttributes struct {
 
 // A mapping of attributes on the "coder_app" resource.
 type agentAppAttributes struct {
-	AgentID      string `mapstructure:"agent_id"`
-	Name         string `mapstructure:"name"`
-	Icon         string `mapstructure:"icon"`
-	URL          string `mapstructure:"url"`
-	Command      string `mapstructure:"command"`
-	RelativePath bool   `mapstructure:"relative_path"`
+	AgentID     string                     `mapstructure:"agent_id"`
+	Name        string                     `mapstructure:"name"`
+	Icon        string                     `mapstructure:"icon"`
+	URL         string                     `mapstructure:"url"`
+	Command     string                     `mapstructure:"command"`
+	Share       string                     `mapstructure:"share"`
+	Subdomain   bool                       `mapstructure:"subdomain"`
+	Healthcheck []appHealthcheckAttributes `mapstructure:"healthcheck"`
+}
+
+// A mapping of attributes on the "healthcheck" resource.
+type appHealthcheckAttributes struct {
+	URL       string `mapstructure:"url"`
+	Interval  int32  `mapstructure:"interval"`
+	Threshold int32  `mapstructure:"threshold"`
+}
+
+// A mapping of attributes on the "coder_metadata" resource.
+type metadataAttributes struct {
+	ResourceID string         `mapstructure:"resource_id"`
+	Hide       bool           `mapstructure:"hide"`
+	Icon       string         `mapstructure:"icon"`
+	Items      []metadataItem `mapstructure:"item"`
+}
+
+type metadataItem struct {
+	Key       string `mapstructure:"key"`
+	Value     string `mapstructure:"value"`
+	Sensitive bool   `mapstructure:"sensitive"`
+	IsNull    bool   `mapstructure:"is_null"`
 }
 
 // ConvertResources consumes Terraform state and a GraphViz representation produced by
 // `terraform graph` to produce resources consumable by Coder.
+// nolint:gocyclo
 func ConvertResources(module *tfjson.StateModule, rawGraph string) ([]*proto.Resource, error) {
 	parsedGraph, err := gographviz.ParseString(rawGraph)
 	if err != nil {
@@ -48,16 +73,30 @@ func ConvertResources(module *tfjson.StateModule, rawGraph string) ([]*proto.Res
 	resources := make([]*proto.Resource, 0)
 	resourceAgents := map[string][]*proto.Agent{}
 
-	// Indexes Terraform resources by it's label. The label
-	// is what "terraform graph" uses to reference nodes.
+	// Indexes Terraform resources by their label and ID.
+	// The label is what "terraform graph" uses to reference nodes, and the ID
+	// is used by "coder_metadata" resources to refer to their targets. (The ID
+	// field is only available when reading a state file, and not when reading a
+	// plan file.)
 	tfResourceByLabel := map[string]*tfjson.StateResource{}
+	resourceLabelByID := map[string]string{}
 	var findTerraformResources func(mod *tfjson.StateModule)
 	findTerraformResources = func(mod *tfjson.StateModule) {
 		for _, module := range mod.ChildModules {
 			findTerraformResources(module)
 		}
 		for _, resource := range mod.Resources {
-			tfResourceByLabel[convertAddressToLabel(resource.Address)] = resource
+			label := convertAddressToLabel(resource.Address)
+			// index by label
+			tfResourceByLabel[label] = resource
+			// index by ID, if it exists
+			id, ok := resource.AttributeValues["id"]
+			if ok {
+				idString, ok := id.(string)
+				if ok {
+					resourceLabelByID[idString] = label
+				}
+			}
 		}
 	}
 	findTerraformResources(module)
@@ -110,7 +149,7 @@ func ConvertResources(module *tfjson.StateModule, rawGraph string) ([]*proto.Res
 		}
 
 		var agentResource *graphResource
-		for _, resource := range findResourcesUpGraph(graph, tfResourceByLabel, agentNode.Name, 0) {
+		for _, resource := range findResourcesInGraph(graph, tfResourceByLabel, agentNode.Name, 0, true) {
 			if agentResource == nil {
 				// Default to the first resource because we have nothing to compare!
 				agentResource = resource
@@ -188,6 +227,25 @@ func ConvertResources(module *tfjson.StateModule, rawGraph string) ([]*proto.Res
 			// Default to the resource name if none is set!
 			attrs.Name = resource.Name
 		}
+		var healthcheck *proto.Healthcheck
+		if len(attrs.Healthcheck) != 0 {
+			healthcheck = &proto.Healthcheck{
+				Url:       attrs.Healthcheck[0].URL,
+				Interval:  attrs.Healthcheck[0].Interval,
+				Threshold: attrs.Healthcheck[0].Threshold,
+			}
+		}
+
+		sharingLevel := proto.AppSharingLevel_OWNER
+		switch strings.ToLower(attrs.Share) {
+		case "owner":
+			sharingLevel = proto.AppSharingLevel_OWNER
+		case "authenticated":
+			sharingLevel = proto.AppSharingLevel_AUTHENTICATED
+		case "public":
+			sharingLevel = proto.AppSharingLevel_PUBLIC
+		}
+
 		for _, agents := range resourceAgents {
 			for _, agent := range agents {
 				// Find agents with the matching ID and associate them!
@@ -199,9 +257,85 @@ func ConvertResources(module *tfjson.StateModule, rawGraph string) ([]*proto.Res
 					Command:      attrs.Command,
 					Url:          attrs.URL,
 					Icon:         attrs.Icon,
-					RelativePath: attrs.RelativePath,
+					Subdomain:    attrs.Subdomain,
+					SharingLevel: sharingLevel,
+					Healthcheck:  healthcheck,
 				})
 			}
+		}
+	}
+
+	// Associate metadata blocks with resources.
+	resourceMetadata := map[string][]*proto.Resource_Metadata{}
+	resourceHidden := map[string]bool{}
+	resourceIcon := map[string]string{}
+	for _, resource := range tfResourceByLabel {
+		if resource.Type != "coder_metadata" {
+			continue
+		}
+		var attrs metadataAttributes
+		err = mapstructure.Decode(resource.AttributeValues, &attrs)
+		if err != nil {
+			return nil, xerrors.Errorf("decode metadata attributes: %w", err)
+		}
+
+		var targetLabel string
+		// This occurs in a plan, because there is no resource ID.
+		// We attempt to find the closest node, just so we can hide it from the UI.
+		if attrs.ResourceID == "" {
+			resourceLabel := convertAddressToLabel(resource.Address)
+
+			var attachedNode *gographviz.Node
+			for _, node := range graph.Nodes.Lookup {
+				// The node attributes surround the label with quotes.
+				if strings.Trim(node.Attrs["label"], `"`) != resourceLabel {
+					continue
+				}
+				attachedNode = node
+				break
+			}
+			if attachedNode == nil {
+				continue
+			}
+			var attachedResource *graphResource
+			for _, resource := range findResourcesInGraph(graph, tfResourceByLabel, attachedNode.Name, 0, false) {
+				if attachedResource == nil {
+					// Default to the first resource because we have nothing to compare!
+					attachedResource = resource
+					continue
+				}
+				if resource.Depth < attachedResource.Depth {
+					// There's a closer resource!
+					attachedResource = resource
+					continue
+				}
+				if resource.Depth == attachedResource.Depth && resource.Label < attachedResource.Label {
+					attachedResource = resource
+					continue
+				}
+			}
+			if attachedResource == nil {
+				continue
+			}
+			targetLabel = attachedResource.Label
+		}
+		if targetLabel == "" {
+			targetLabel = resourceLabelByID[attrs.ResourceID]
+		}
+		if targetLabel == "" {
+			continue
+		}
+
+		resourceHidden[targetLabel] = attrs.Hide
+		resourceIcon[targetLabel] = attrs.Icon
+		for _, item := range attrs.Items {
+			resourceMetadata[targetLabel] = append(resourceMetadata[targetLabel],
+				&proto.Resource_Metadata{
+					Key:       item.Key,
+					Value:     item.Value,
+					Sensitive: item.Sensitive,
+					IsNull:    item.IsNull,
+				})
 		}
 	}
 
@@ -209,19 +343,23 @@ func ConvertResources(module *tfjson.StateModule, rawGraph string) ([]*proto.Res
 		if resource.Mode == tfjson.DataResourceMode {
 			continue
 		}
-		if resource.Type == "coder_agent" || resource.Type == "coder_agent_instance" || resource.Type == "coder_app" {
+		if resource.Type == "coder_agent" || resource.Type == "coder_agent_instance" || resource.Type == "coder_app" || resource.Type == "coder_metadata" {
 			continue
 		}
+		label := convertAddressToLabel(resource.Address)
 
-		agents, exists := resourceAgents[convertAddressToLabel(resource.Address)]
+		agents, exists := resourceAgents[label]
 		if exists {
 			applyAutomaticInstanceID(resource, agents)
 		}
 
 		resources = append(resources, &proto.Resource{
-			Name:   resource.Name,
-			Type:   resource.Type,
-			Agents: agents,
+			Name:     resource.Name,
+			Type:     resource.Type,
+			Agents:   agents,
+			Hide:     resourceHidden[label],
+			Icon:     resourceIcon[label],
+			Metadata: resourceMetadata[label],
 		})
 	}
 
@@ -247,8 +385,9 @@ func applyAutomaticInstanceID(resource *tfjson.StateResource, agents []*proto.Ag
 	key, isValid := map[string]string{
 		"google_compute_instance":         "instance_id",
 		"aws_instance":                    "id",
-		"azurerm_linux_virtual_machine":   "id",
-		"azurerm_windows_virtual_machine": "id",
+		"aws_spot_instance_request":       "spot_instance_id",
+		"azurerm_linux_virtual_machine":   "virtual_machine_id",
+		"azurerm_windows_virtual_machine": "virtual_machine_id",
 	}[resource.Type]
 	if !isValid {
 		return
@@ -280,14 +419,19 @@ func applyAutomaticInstanceID(resource *tfjson.StateResource, agents []*proto.Ag
 	}
 }
 
-// findResourcesUpGraph traverses upwards in a graph until a resource is found,
+// findResourcesInGraph traverses directionally in a graph until a resource is found,
 // then it stores the depth it was found at, and continues working up the tree.
-func findResourcesUpGraph(graph *gographviz.Graph, tfResourceByLabel map[string]*tfjson.StateResource, nodeName string, currentDepth uint) []*graphResource {
+// nolint:revive
+func findResourcesInGraph(graph *gographviz.Graph, tfResourceByLabel map[string]*tfjson.StateResource, nodeName string, currentDepth uint, up bool) []*graphResource {
 	graphResources := make([]*graphResource, 0)
-	for destination := range graph.Edges.DstToSrcs[nodeName] {
+	mapping := graph.Edges.DstToSrcs
+	if !up {
+		mapping = graph.Edges.SrcToDsts
+	}
+	for destination := range mapping[nodeName] {
 		destinationNode := graph.Nodes.Lookup[destination]
 		// Work our way up the tree!
-		graphResources = append(graphResources, findResourcesUpGraph(graph, tfResourceByLabel, destinationNode.Name, currentDepth+1)...)
+		graphResources = append(graphResources, findResourcesInGraph(graph, tfResourceByLabel, destinationNode.Name, currentDepth+1, up)...)
 
 		destinationLabel, exists := destinationNode.Attrs["label"]
 		if !exists {

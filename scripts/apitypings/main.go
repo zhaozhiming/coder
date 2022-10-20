@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fatih/structtag"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/xerrors"
 
@@ -248,11 +249,7 @@ func (g *Generator) generateAll() (*TypescriptTypes, error) {
 
 func (g *Generator) posLine(obj types.Object) string {
 	file := g.pkg.Fset.File(obj.Pos())
-	position := file.Position(obj.Pos())
-	position.Filename = filepath.Join("codersdk", filepath.Base(position.Filename))
-	return fmt.Sprintf("// From %s\n",
-		position.String(),
-	)
+	return fmt.Sprintf("// From %s\n", filepath.Join("codersdk", filepath.Base(file.Name())))
 }
 
 // buildStruct just prints the typescript def for a type.
@@ -286,32 +283,50 @@ func (g *Generator) buildStruct(obj types.Object, st *types.Struct) (string, err
 		}
 		field := st.Field(i)
 		tag := reflect.StructTag(st.Tag(i))
+		tags, err := structtag.Parse(string(tag))
+		if err != nil {
+			panic("invalid struct tags on type " + obj.String())
+		}
 
 		// Use the json name if present
-		jsonName := tag.Get("json")
-		arr := strings.Split(jsonName, ",")
-		jsonName = arr[0]
+		jsonTag, err := tags.Get("json")
+		var (
+			jsonName     string
+			jsonOptional bool
+		)
+		if err == nil {
+			jsonName = jsonTag.Name
+			if len(jsonTag.Options) > 0 && jsonTag.Options[0] == "omitempty" {
+				jsonOptional = true
+			}
+		}
 		if jsonName == "" {
 			jsonName = field.Name()
 		}
-		jsonOptional := false
-		if len(arr) > 1 && arr[1] == "omitempty" {
-			jsonOptional = true
+
+		// Infer the type.
+		tsType, err := g.typescriptType(field.Type())
+		if err != nil {
+			return "", xerrors.Errorf("typescript type: %w", err)
 		}
 
-		var tsType TypescriptType
-		// If a `typescript:"string"` exists, we take this, and do not try to infer.
-		typescriptTag := tag.Get("typescript")
-		if typescriptTag == "-" {
-			// Ignore this field
-			continue
-		} else if typescriptTag != "" {
-			tsType.ValueType = typescriptTag
-		} else {
-			var err error
-			tsType, err = g.typescriptType(field.Type())
-			if err != nil {
-				return "", xerrors.Errorf("typescript type: %w", err)
+		// If a `typescript:"string"` exists, we take this, and ignore what we
+		// inferred.
+		typescriptTag, err := tags.Get("typescript")
+		if err == nil {
+			if err == nil && typescriptTag.Name == "-" {
+				// Completely ignore this field.
+				continue
+			} else if typescriptTag.Name != "" {
+				tsType = TypescriptType{
+					ValueType: typescriptTag.Name,
+				}
+			}
+
+			// If you specify `typescript:",notnull"` then mark the type as not
+			// optional.
+			if len(typescriptTag.Options) > 0 && typescriptTag.Options[0] == "notnull" {
+				tsType.Optional = false
 			}
 		}
 
@@ -341,6 +356,7 @@ type TypescriptType struct {
 // typescriptType this function returns a typescript type for a given
 // golang type.
 // Eg:
+//
 //	[]byte returns "string"
 func (g *Generator) typescriptType(ty types.Type) (TypescriptType, error) {
 	switch ty := ty.(type) {
@@ -385,8 +401,14 @@ func (g *Generator) typescriptType(ty types.Type) (TypescriptType, error) {
 			return TypescriptType{}, xerrors.Errorf("map key: %w", err)
 		}
 
+		aboveTypeLine := keyType.AboveTypeLine
+		if aboveTypeLine != "" && valueType.AboveTypeLine != "" {
+			aboveTypeLine = aboveTypeLine + "\n"
+		}
+		aboveTypeLine = aboveTypeLine + valueType.AboveTypeLine
 		return TypescriptType{
-			ValueType: fmt.Sprintf("Record<%s, %s>", keyType.ValueType, valueType.ValueType),
+			ValueType:     fmt.Sprintf("Record<%s, %s>", keyType.ValueType, valueType.ValueType),
+			AboveTypeLine: aboveTypeLine,
 		}, nil
 	case *types.Slice, *types.Array:
 		// Slice/Arrays are pretty much the same.
@@ -412,15 +434,6 @@ func (g *Generator) typescriptType(ty types.Type) (TypescriptType, error) {
 		}
 	case *types.Named:
 		n := ty
-		// First see if the type is defined elsewhere. If it is, we can just
-		// put the name as it will be defined in the typescript codeblock
-		// we generate.
-		name := n.Obj().Name()
-		if obj := g.pkg.Types.Scope().Lookup(name); obj != nil {
-			// Sweet! Using other typescript types as fields. This could be an
-			// enum or another struct
-			return TypescriptType{ValueType: name}, nil
-		}
 
 		// These are external named types that we handle uniquely.
 		switch n.String() {
@@ -431,10 +444,22 @@ func (g *Generator) typescriptType(ty types.Type) (TypescriptType, error) {
 			return TypescriptType{ValueType: "string"}, nil
 		case "database/sql.NullTime":
 			return TypescriptType{ValueType: "string", Optional: true}, nil
+		case "github.com/coder/coder/codersdk.NullTime":
+			return TypescriptType{ValueType: "string", Optional: true}, nil
 		case "github.com/google/uuid.NullUUID":
 			return TypescriptType{ValueType: "string", Optional: true}, nil
 		case "github.com/google/uuid.UUID":
 			return TypescriptType{ValueType: "string"}, nil
+		}
+
+		// Then see if the type is defined elsewhere. If it is, we can just
+		// put the name as it will be defined in the typescript codeblock
+		// we generate.
+		name := n.Obj().Name()
+		if obj := g.pkg.Types.Scope().Lookup(name); obj != nil {
+			// Sweet! Using other typescript types as fields. This could be an
+			// enum or another struct
+			return TypescriptType{ValueType: name}, nil
 		}
 
 		// If it's a struct, just use the name of the struct type
@@ -461,6 +486,14 @@ func (g *Generator) typescriptType(ty types.Type) (TypescriptType, error) {
 		}
 		resp.Optional = true
 		return resp, nil
+	case *types.Interface:
+		// only handle the empty interface for now
+		intf := ty
+		if intf.Empty() {
+			return TypescriptType{ValueType: "any",
+				AboveTypeLine: indentedComment("eslint-disable-next-line")}, nil
+		}
+		return TypescriptType{}, xerrors.New("only empty interface types are supported")
 	}
 
 	// These are all the other types we need to support.

@@ -1,6 +1,6 @@
 import { useMachine } from "@xstate/react"
 import { FC } from "react"
-import { Helmet } from "react-helmet"
+import { Helmet } from "react-helmet-async"
 import { useParams } from "react-router-dom"
 import { pageTitle } from "../../util/page"
 import { workspaceBuildMachine } from "../../xServices/workspaceBuild/workspaceBuildXService"
@@ -17,7 +17,11 @@ export const WorkspaceBuildPage: FC = () => {
     <>
       <Helmet>
         <title>
-          {build ? pageTitle(`Build #${build.build_number} · ${build.workspace_name}`) : ""}
+          {build
+            ? pageTitle(
+                `Build #${build.build_number} · ${build.workspace_name}`,
+              )
+            : ""}
         </title>
       </Helmet>
 
@@ -25,3 +29,5 @@ export const WorkspaceBuildPage: FC = () => {
     </>
   )
 }
+
+export default WorkspaceBuildPage

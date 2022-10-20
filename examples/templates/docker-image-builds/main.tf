@@ -3,66 +3,50 @@ terraform {
   required_providers {
     coder = {
       source  = "coder/coder"
-      version = "0.4.3"
+      version = "0.5.3"
     }
     docker = {
       source  = "kreuzwerker/docker"
-      version = "~> 2.16.0"
+      version = "~> 2.20.2"
     }
   }
 }
 
-# Admin parameters
-variable "step1_docker_host_warning" {
-  description = <<-EOF
-  Is Docker running on the Coder host?
-
-  This template will use the Docker socket present on
-  the Coder host, which is not necessarily your local machine.
-
-  You can specify a different host in the template file and
-  surpress this warning.
-  EOF
-  validation {
-    condition     = contains(["Continue using /var/run/docker.sock on the Coder host"], var.step1_docker_host_warning)
-    error_message = "Cancelling template create."
-  }
-
-  sensitive = true
-}
-variable "step2_arch" {
-  description = "arch: What architecture is your Docker host on?"
-  validation {
-    condition     = contains(["amd64", "arm64", "armv7"], var.step2_arch)
-    error_message = "Value must be amd64, arm64, or armv7."
-  }
-  sensitive = true
-}
-variable "step3_OS" {
-  description = <<-EOF
-  What operating system is your Coder host on?
-  EOF
-
-  validation {
-    condition     = contains(["MacOS", "Windows", "Linux"], var.step3_OS)
-    error_message = "Value must be MacOS, Windows, or Linux."
-  }
-  sensitive = true
+data "coder_provisioner" "me" {
 }
 
 provider "docker" {
-  host = var.step3_OS == "Windows" ? "npipe:////.//pipe//docker_engine" : "unix:///var/run/docker.sock"
-}
-
-provider "coder" {
 }
 
 data "coder_workspace" "me" {
 }
 
-resource "coder_agent" "dev" {
-  arch = var.step2_arch
-  os   = "linux"
+resource "coder_agent" "main" {
+  arch           = data.coder_provisioner.me.arch
+  os             = "linux"
+  startup_script = <<EOT
+    #!/bin/bash
+
+    # install and start code-server
+    curl -fsSL https://code-server.dev/install.sh | sh  | tee code-server-install.log
+    code-server --auth none --port 13337 | tee code-server-install.log &
+  EOT
+}
+
+resource "coder_app" "code-server" {
+  agent_id  = coder_agent.main.id
+  name      = "code-server"
+  url       = "http://localhost:13337/?folder=/home/coder"
+  icon      = "/icon/code.svg"
+  subdomain = false
+  share     = "owner"
+
+  healthcheck {
+    url       = "http://localhost:13337/healthz"
+    interval  = 3
+    threshold = 10
+  }
+
 }
 
 variable "docker_image" {
@@ -108,8 +92,8 @@ resource "docker_container" "workspace" {
   hostname = lower(data.coder_workspace.me.name)
   dns      = ["1.1.1.1"]
   # Use the docker gateway if the access URL is 127.0.0.1
-  command = ["sh", "-c", replace(coder_agent.dev.init_script, "127.0.0.1", "host.docker.internal")]
-  env     = ["CODER_AGENT_TOKEN=${coder_agent.dev.token}"]
+  command = ["sh", "-c", replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")]
+  env     = ["CODER_AGENT_TOKEN=${coder_agent.main.token}"]
   host {
     host = "host.docker.internal"
     ip   = "host-gateway"
@@ -118,5 +102,15 @@ resource "docker_container" "workspace" {
     container_path = "/home/coder/"
     volume_name    = docker_volume.home_volume.name
     read_only      = false
+  }
+}
+
+resource "coder_metadata" "container_info" {
+  count       = data.coder_workspace.me.start_count
+  resource_id = docker_container.workspace[0].id
+
+  item {
+    key   = "image"
+    value = var.docker_image
   }
 }

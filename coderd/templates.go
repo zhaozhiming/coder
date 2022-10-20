@@ -2,16 +2,21 @@ package coderd
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/moby/moby/pkg/namesgenerator"
 	"golang.org/x/xerrors"
 
+	"github.com/coder/coder/coderd/audit"
 	"github.com/coder/coder/coderd/database"
 	"github.com/coder/coder/coderd/httpapi"
 	"github.com/coder/coder/coderd/httpmw"
@@ -26,8 +31,17 @@ var (
 	minAutostartIntervalDefault = time.Hour
 )
 
+// Auto-importable templates. These can be auto-imported after the first user
+// has been created.
+type AutoImportTemplate string
+
+const (
+	AutoImportTemplateKubernetes AutoImportTemplate = "kubernetes"
+)
+
 // Returns a single template.
 func (api *API) template(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	template := httpmw.TemplateParam(r)
 
 	if !api.Authorize(r, rbac.ActionRead, template) {
@@ -35,20 +49,15 @@ func (api *API) template(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workspaceCounts, err := api.Database.GetWorkspaceOwnerCountsByTemplateIDs(r.Context(), []uuid.UUID{template.ID})
+	workspaceCounts, err := api.Database.GetWorkspaceOwnerCountsByTemplateIDs(ctx, []uuid.UUID{template.ID})
 	if errors.Is(err, sql.ErrNoRows) {
 		err = nil
 	}
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching workspace count.",
 			Detail:  err.Error(),
 		})
-		return
-	}
-
-	if !api.Authorize(r, rbac.ActionRead, template) {
-		httpapi.ResourceNotFound(rw)
 		return
 	}
 
@@ -57,80 +66,109 @@ func (api *API) template(rw http.ResponseWriter, r *http.Request) {
 		count = uint32(workspaceCounts[0].Count)
 	}
 
-	createdByNameMap, err := getCreatedByNamesByTemplateIDs(r.Context(), api.Database, []database.Template{template})
+	createdByNameMap, err := getCreatedByNamesByTemplateIDs(ctx, api.Database, []database.Template{template})
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching creator name.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	httpapi.Write(rw, http.StatusOK, convertTemplate(template, count, createdByNameMap[template.ID.String()]))
+	httpapi.Write(ctx, rw, http.StatusOK, api.convertTemplate(template, count, createdByNameMap[template.ID.String()]))
 }
 
 func (api *API) deleteTemplate(rw http.ResponseWriter, r *http.Request) {
-	template := httpmw.TemplateParam(r)
+	var (
+		ctx               = r.Context()
+		template          = httpmw.TemplateParam(r)
+		auditor           = *api.Auditor.Load()
+		aReq, commitAudit = audit.InitRequest[database.Template](rw, &audit.RequestParams{
+			Audit:   auditor,
+			Log:     api.Logger,
+			Request: r,
+			Action:  database.AuditActionDelete,
+		})
+	)
+	defer commitAudit()
+	aReq.Old = template
+
 	if !api.Authorize(r, rbac.ActionDelete, template) {
 		httpapi.ResourceNotFound(rw)
 		return
 	}
 
-	workspaces, err := api.Database.GetWorkspaces(r.Context(), database.GetWorkspacesParams{
+	workspaces, err := api.Database.GetWorkspaces(ctx, database.GetWorkspacesParams{
 		TemplateIds: []uuid.UUID{template.ID},
 	})
-	if errors.Is(err, sql.ErrNoRows) {
-		err = nil
-	}
-	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching workspaces by template id.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 	if len(workspaces) > 0 {
-		httpapi.Write(rw, http.StatusPreconditionFailed, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusPreconditionFailed, codersdk.Response{
 			Message: "All workspaces must be deleted before a template can be removed.",
 		})
 		return
 	}
-	err = api.Database.UpdateTemplateDeletedByID(r.Context(), database.UpdateTemplateDeletedByIDParams{
+	err = api.Database.UpdateTemplateDeletedByID(ctx, database.UpdateTemplateDeletedByIDParams{
 		ID:        template.ID,
 		Deleted:   true,
 		UpdatedAt: database.Now(),
 	})
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error deleting template.",
 			Detail:  err.Error(),
 		})
 		return
 	}
-	httpapi.Write(rw, http.StatusOK, codersdk.Response{
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.Response{
 		Message: "Template has been deleted!",
 	})
 }
 
 // Create a new template in an organization.
 func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Request) {
-	var createTemplate codersdk.CreateTemplateRequest
-	organization := httpmw.OrganizationParam(r)
-	apiKey := httpmw.APIKey(r)
+	var (
+		ctx                                = r.Context()
+		createTemplate                     codersdk.CreateTemplateRequest
+		organization                       = httpmw.OrganizationParam(r)
+		apiKey                             = httpmw.APIKey(r)
+		auditor                            = *api.Auditor.Load()
+		templateAudit, commitTemplateAudit = audit.InitRequest[database.Template](rw, &audit.RequestParams{
+			Audit:   auditor,
+			Log:     api.Logger,
+			Request: r,
+			Action:  database.AuditActionCreate,
+		})
+		templateVersionAudit, commitTemplateVersionAudit = audit.InitRequest[database.TemplateVersion](rw, &audit.RequestParams{
+			Audit:   auditor,
+			Log:     api.Logger,
+			Request: r,
+			Action:  database.AuditActionWrite,
+		})
+	)
+	defer commitTemplateAudit()
+	defer commitTemplateVersionAudit()
+
 	if !api.Authorize(r, rbac.ActionCreate, rbac.ResourceTemplate.InOrg(organization.ID)) {
 		httpapi.ResourceNotFound(rw)
 		return
 	}
 
-	if !httpapi.Read(rw, r, &createTemplate) {
+	if !httpapi.Read(ctx, rw, r, &createTemplate) {
 		return
 	}
-	_, err := api.Database.GetTemplateByOrganizationAndName(r.Context(), database.GetTemplateByOrganizationAndNameParams{
+	_, err := api.Database.GetTemplateByOrganizationAndName(ctx, database.GetTemplateByOrganizationAndNameParams{
 		OrganizationID: organization.ID,
 		Name:           createTemplate.Name,
 	})
 	if err == nil {
-		httpapi.Write(rw, http.StatusConflict, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusConflict, codersdk.Response{
 			Message: fmt.Sprintf("Template with name %q already exists.", createTemplate.Name),
 			Validations: []codersdk.ValidationError{{
 				Field:  "name",
@@ -140,15 +178,15 @@ func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching template by name.",
 			Detail:  err.Error(),
 		})
 		return
 	}
-	templateVersion, err := api.Database.GetTemplateVersionByID(r.Context(), createTemplate.VersionID)
+	templateVersion, err := api.Database.GetTemplateVersionByID(ctx, createTemplate.VersionID)
 	if errors.Is(err, sql.ErrNoRows) {
-		httpapi.Write(rw, http.StatusNotFound, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusNotFound, codersdk.Response{
 			Message: fmt.Sprintf("Template version %q does not exist.", createTemplate.VersionID),
 			Validations: []codersdk.ValidationError{
 				{Field: "template_version_id", Detail: "Template version does not exist"},
@@ -157,15 +195,17 @@ func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching template version.",
 			Detail:  err.Error(),
 		})
 		return
 	}
-	importJob, err := api.Database.GetProvisionerJobByID(r.Context(), templateVersion.JobID)
+	templateVersionAudit.Old = templateVersion
+
+	importJob, err := api.Database.GetProvisionerJobByID(ctx, templateVersion.JobID)
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching provisioner job.",
 			Detail:  err.Error(),
 		})
@@ -173,8 +213,27 @@ func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Reque
 	}
 
 	maxTTL := maxTTLDefault
-	if !ptr.NilOrZero(createTemplate.MaxTTLMillis) {
+	if createTemplate.MaxTTLMillis != nil {
 		maxTTL = time.Duration(*createTemplate.MaxTTLMillis) * time.Millisecond
+	}
+	if maxTTL < 0 {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "Invalid create template request.",
+			Validations: []codersdk.ValidationError{
+				{Field: "max_ttl_ms", Detail: "Must be a positive integer."},
+			},
+		})
+		return
+	}
+
+	if maxTTL > maxTTLDefault {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "Invalid create template request.",
+			Validations: []codersdk.ValidationError{
+				{Field: "max_ttl_ms", Detail: "Cannot be greater than " + maxTTLDefault.String()},
+			},
+		})
+		return
 	}
 
 	minAutostartInterval := minAutostartIntervalDefault
@@ -184,9 +243,9 @@ func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Reque
 
 	var dbTemplate database.Template
 	var template codersdk.Template
-	err = api.Database.InTx(func(db database.Store) error {
+	err = api.Database.InTx(func(tx database.Store) error {
 		now := database.Now()
-		dbTemplate, err = db.InsertTemplate(r.Context(), database.InsertTemplateParams{
+		dbTemplate, err = tx.InsertTemplate(ctx, database.InsertTemplateParams{
 			ID:                   uuid.New(),
 			CreatedAt:            now,
 			UpdatedAt:            now,
@@ -198,12 +257,18 @@ func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Reque
 			MaxTtl:               int64(maxTTL),
 			MinAutostartInterval: int64(minAutostartInterval),
 			CreatedBy:            apiKey.UserID,
+			UserACL:              database.TemplateACL{},
+			GroupACL: database.TemplateACL{
+				organization.ID.String(): []rbac.Action{rbac.ActionRead},
+			},
 		})
 		if err != nil {
 			return xerrors.Errorf("insert template: %s", err)
 		}
 
-		err = db.UpdateTemplateVersionByID(r.Context(), database.UpdateTemplateVersionByIDParams{
+		templateAudit.New = dbTemplate
+
+		err = tx.UpdateTemplateVersionByID(ctx, database.UpdateTemplateVersionByIDParams{
 			ID: templateVersion.ID,
 			TemplateID: uuid.NullUUID{
 				UUID:  dbTemplate.ID,
@@ -214,9 +279,15 @@ func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Reque
 		if err != nil {
 			return xerrors.Errorf("insert template version: %s", err)
 		}
+		newTemplateVersion := templateVersion
+		newTemplateVersion.TemplateID = uuid.NullUUID{
+			UUID:  dbTemplate.ID,
+			Valid: true,
+		}
+		templateVersionAudit.New = newTemplateVersion
 
 		for _, parameterValue := range createTemplate.ParameterValues {
-			_, err = db.InsertParameterValue(r.Context(), database.InsertParameterValueParams{
+			_, err = tx.InsertParameterValue(ctx, database.InsertParameterValueParams{
 				ID:                uuid.New(),
 				Name:              parameterValue.Name,
 				CreatedAt:         database.Now(),
@@ -232,16 +303,16 @@ func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Reque
 			}
 		}
 
-		createdByNameMap, err := getCreatedByNamesByTemplateIDs(r.Context(), db, []database.Template{dbTemplate})
+		createdByNameMap, err := getCreatedByNamesByTemplateIDs(ctx, tx, []database.Template{dbTemplate})
 		if err != nil {
 			return xerrors.Errorf("get creator name: %w", err)
 		}
 
-		template = convertTemplate(dbTemplate, 0, createdByNameMap[dbTemplate.ID.String()])
+		template = api.convertTemplate(dbTemplate, 0, createdByNameMap[dbTemplate.ID.String()])
 		return nil
 	})
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error inserting template.",
 			Detail:  err.Error(),
 		})
@@ -253,19 +324,20 @@ func (api *API) postTemplateByOrganization(rw http.ResponseWriter, r *http.Reque
 		TemplateVersions: []telemetry.TemplateVersion{telemetry.ConvertTemplateVersion(templateVersion)},
 	})
 
-	httpapi.Write(rw, http.StatusCreated, template)
+	httpapi.Write(ctx, rw, http.StatusCreated, template)
 }
 
 func (api *API) templatesByOrganization(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	organization := httpmw.OrganizationParam(r)
-	templates, err := api.Database.GetTemplatesWithFilter(r.Context(), database.GetTemplatesWithFilterParams{
+	templates, err := api.Database.GetTemplatesWithFilter(ctx, database.GetTemplatesWithFilterParams{
 		OrganizationID: organization.ID,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		err = nil
 	}
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching templates in organization.",
 			Detail:  err.Error(),
 		})
@@ -273,41 +345,49 @@ func (api *API) templatesByOrganization(rw http.ResponseWriter, r *http.Request)
 	}
 
 	// Filter templates based on rbac permissions
-	templates = AuthorizeFilter(api, r, rbac.ActionRead, templates)
+	templates, err = AuthorizeFilter(api.HTTPAuth, r, rbac.ActionRead, templates)
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
+			Message: "Internal error fetching templates.",
+			Detail:  err.Error(),
+		})
+		return
+	}
 
 	templateIDs := make([]uuid.UUID, 0, len(templates))
 
 	for _, template := range templates {
 		templateIDs = append(templateIDs, template.ID)
 	}
-	workspaceCounts, err := api.Database.GetWorkspaceOwnerCountsByTemplateIDs(r.Context(), templateIDs)
+	workspaceCounts, err := api.Database.GetWorkspaceOwnerCountsByTemplateIDs(ctx, templateIDs)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = nil
 	}
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching workspace counts.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	createdByNameMap, err := getCreatedByNamesByTemplateIDs(r.Context(), api.Database, templates)
+	createdByNameMap, err := getCreatedByNamesByTemplateIDs(ctx, api.Database, templates)
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching creator names.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	httpapi.Write(rw, http.StatusOK, convertTemplates(templates, workspaceCounts, createdByNameMap))
+	httpapi.Write(ctx, rw, http.StatusOK, api.convertTemplates(templates, workspaceCounts, createdByNameMap))
 }
 
 func (api *API) templateByOrganizationAndName(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	organization := httpmw.OrganizationParam(r)
 	templateName := chi.URLParam(r, "templatename")
-	template, err := api.Database.GetTemplateByOrganizationAndName(r.Context(), database.GetTemplateByOrganizationAndNameParams{
+	template, err := api.Database.GetTemplateByOrganizationAndName(ctx, database.GetTemplateByOrganizationAndNameParams{
 		OrganizationID: organization.ID,
 		Name:           templateName,
 	})
@@ -317,7 +397,7 @@ func (api *API) templateByOrganizationAndName(rw http.ResponseWriter, r *http.Re
 			return
 		}
 
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching template.",
 			Detail:  err.Error(),
 		})
@@ -329,12 +409,12 @@ func (api *API) templateByOrganizationAndName(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
-	workspaceCounts, err := api.Database.GetWorkspaceOwnerCountsByTemplateIDs(r.Context(), []uuid.UUID{template.ID})
+	workspaceCounts, err := api.Database.GetWorkspaceOwnerCountsByTemplateIDs(ctx, []uuid.UUID{template.ID})
 	if errors.Is(err, sql.ErrNoRows) {
 		err = nil
 	}
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching workspace counts.",
 			Detail:  err.Error(),
 		})
@@ -346,27 +426,40 @@ func (api *API) templateByOrganizationAndName(rw http.ResponseWriter, r *http.Re
 		count = uint32(workspaceCounts[0].Count)
 	}
 
-	createdByNameMap, err := getCreatedByNamesByTemplateIDs(r.Context(), api.Database, []database.Template{template})
+	createdByNameMap, err := getCreatedByNamesByTemplateIDs(ctx, api.Database, []database.Template{template})
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching creator name.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	httpapi.Write(rw, http.StatusOK, convertTemplate(template, count, createdByNameMap[template.ID.String()]))
+	httpapi.Write(ctx, rw, http.StatusOK, api.convertTemplate(template, count, createdByNameMap[template.ID.String()]))
 }
 
 func (api *API) patchTemplateMeta(rw http.ResponseWriter, r *http.Request) {
-	template := httpmw.TemplateParam(r)
+	var (
+		ctx               = r.Context()
+		template          = httpmw.TemplateParam(r)
+		auditor           = *api.Auditor.Load()
+		aReq, commitAudit = audit.InitRequest[database.Template](rw, &audit.RequestParams{
+			Audit:   auditor,
+			Log:     api.Logger,
+			Request: r,
+			Action:  database.AuditActionWrite,
+		})
+	)
+	defer commitAudit()
+	aReq.Old = template
+
 	if !api.Authorize(r, rbac.ActionUpdate, template) {
 		httpapi.ResourceNotFound(rw)
 		return
 	}
 
 	var req codersdk.UpdateTemplateMeta
-	if !httpapi.Read(rw, r, &req) {
+	if !httpapi.Read(ctx, rw, r, &req) {
 		return
 	}
 
@@ -377,9 +470,12 @@ func (api *API) patchTemplateMeta(rw http.ResponseWriter, r *http.Request) {
 	if req.MinAutostartIntervalMillis < 0 {
 		validErrs = append(validErrs, codersdk.ValidationError{Field: "min_autostart_interval_ms", Detail: "Must be a positive integer."})
 	}
+	if req.MaxTTLMillis > maxTTLDefault.Milliseconds() {
+		validErrs = append(validErrs, codersdk.ValidationError{Field: "max_ttl_ms", Detail: "Cannot be greater than " + maxTTLDefault.String()})
+	}
 
 	if len(validErrs) > 0 {
-		httpapi.Write(rw, http.StatusBadRequest, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
 			Message:     "Invalid request to update template metadata!",
 			Validations: validErrs,
 		})
@@ -388,9 +484,9 @@ func (api *API) patchTemplateMeta(rw http.ResponseWriter, r *http.Request) {
 
 	count := uint32(0)
 	var updated database.Template
-	err := api.Database.InTx(func(s database.Store) error {
+	err := api.Database.InTx(func(tx database.Store) error {
 		// Fetch workspace counts
-		workspaceCounts, err := s.GetWorkspaceOwnerCountsByTemplateIDs(r.Context(), []uuid.UUID{template.ID})
+		workspaceCounts, err := tx.GetWorkspaceOwnerCountsByTemplateIDs(ctx, []uuid.UUID{template.ID})
 		if xerrors.Is(err, sql.ErrNoRows) {
 			err = nil
 		}
@@ -402,66 +498,231 @@ func (api *API) patchTemplateMeta(rw http.ResponseWriter, r *http.Request) {
 			count = uint32(workspaceCounts[0].Count)
 		}
 
-		if req.Description == template.Description &&
+		if req.Name == template.Name &&
+			req.Description == template.Description &&
+			req.Icon == template.Icon &&
 			req.MaxTTLMillis == time.Duration(template.MaxTtl).Milliseconds() &&
 			req.MinAutostartIntervalMillis == time.Duration(template.MinAutostartInterval).Milliseconds() {
 			return nil
 		}
 
 		// Update template metadata -- empty fields are not overwritten.
+		name := req.Name
 		desc := req.Description
+		icon := req.Icon
 		maxTTL := time.Duration(req.MaxTTLMillis) * time.Millisecond
 		minAutostartInterval := time.Duration(req.MinAutostartIntervalMillis) * time.Millisecond
 
+		if name == "" {
+			name = template.Name
+		}
 		if desc == "" {
 			desc = template.Description
-		}
-		if maxTTL == 0 {
-			maxTTL = time.Duration(template.MaxTtl)
 		}
 		if minAutostartInterval == 0 {
 			minAutostartInterval = time.Duration(template.MinAutostartInterval)
 		}
 
-		if err := s.UpdateTemplateMetaByID(r.Context(), database.UpdateTemplateMetaByIDParams{
+		updated, err = tx.UpdateTemplateMetaByID(ctx, database.UpdateTemplateMetaByIDParams{
 			ID:                   template.ID,
 			UpdatedAt:            database.Now(),
+			Name:                 name,
 			Description:          desc,
+			Icon:                 icon,
 			MaxTtl:               int64(maxTTL),
 			MinAutostartInterval: int64(minAutostartInterval),
-		}); err != nil {
-			return err
-		}
-
-		updated, err = s.GetTemplateByID(r.Context(), template.ID)
+		})
 		if err != nil {
 			return err
 		}
+
 		return nil
 	})
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
-			Message: "Internal error updating template metadata.",
-			Detail:  err.Error(),
-		})
+		httpapi.InternalServerError(rw, err)
 		return
 	}
 
 	if updated.UpdatedAt.IsZero() {
-		httpapi.Write(rw, http.StatusNotModified, nil)
+		aReq.New = template
+		httpapi.Write(ctx, rw, http.StatusNotModified, nil)
 		return
 	}
+	aReq.New = updated
 
-	createdByNameMap, err := getCreatedByNamesByTemplateIDs(r.Context(), api.Database, []database.Template{updated})
+	createdByNameMap, err := getCreatedByNamesByTemplateIDs(ctx, api.Database, []database.Template{updated})
 	if err != nil {
-		httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Internal error fetching creator name.",
 			Detail:  err.Error(),
 		})
 		return
 	}
 
-	httpapi.Write(rw, http.StatusOK, convertTemplate(updated, count, createdByNameMap[updated.ID.String()]))
+	httpapi.Write(ctx, rw, http.StatusOK, api.convertTemplate(updated, count, createdByNameMap[updated.ID.String()]))
+}
+
+func (api *API) templateDAUs(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	template := httpmw.TemplateParam(r)
+	if !api.Authorize(r, rbac.ActionRead, template) {
+		httpapi.ResourceNotFound(rw)
+		return
+	}
+
+	resp, _ := api.metricsCache.TemplateDAUs(template.ID)
+	if resp == nil || resp.Entries == nil {
+		httpapi.Write(ctx, rw, http.StatusOK, &codersdk.TemplateDAUsResponse{
+			Entries: []codersdk.DAUEntry{},
+		})
+		return
+	}
+	httpapi.Write(ctx, rw, http.StatusOK, resp)
+}
+
+type autoImportTemplateOpts struct {
+	name    string
+	archive []byte
+	params  map[string]string
+	userID  uuid.UUID
+	orgID   uuid.UUID
+}
+
+func (api *API) autoImportTemplate(ctx context.Context, opts autoImportTemplateOpts) (database.Template, error) {
+	var template database.Template
+	err := api.Database.InTx(func(tx database.Store) error {
+		// Insert the archive into the files table.
+		var (
+			hash = sha256.Sum256(opts.archive)
+			now  = database.Now()
+		)
+		file, err := tx.InsertFile(ctx, database.InsertFileParams{
+			ID:        uuid.New(),
+			Hash:      hex.EncodeToString(hash[:]),
+			CreatedAt: now,
+			CreatedBy: opts.userID,
+			Mimetype:  "application/x-tar",
+			Data:      opts.archive,
+		})
+		if err != nil {
+			return xerrors.Errorf("insert auto-imported template archive into files table: %w", err)
+		}
+
+		jobID := uuid.New()
+
+		// Insert parameters
+		for key, value := range opts.params {
+			_, err = tx.InsertParameterValue(ctx, database.InsertParameterValueParams{
+				ID:                uuid.New(),
+				Name:              key,
+				CreatedAt:         now,
+				UpdatedAt:         now,
+				Scope:             database.ParameterScopeImportJob,
+				ScopeID:           jobID,
+				SourceScheme:      database.ParameterSourceSchemeData,
+				SourceValue:       value,
+				DestinationScheme: database.ParameterDestinationSchemeProvisionerVariable,
+			})
+			if err != nil {
+				return xerrors.Errorf("insert job-scoped parameter %q with value %q: %w", key, value, err)
+			}
+		}
+
+		// Create provisioner job
+		job, err := tx.InsertProvisionerJob(ctx, database.InsertProvisionerJobParams{
+			ID:             jobID,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			OrganizationID: opts.orgID,
+			InitiatorID:    opts.userID,
+			Provisioner:    database.ProvisionerTypeTerraform,
+			StorageMethod:  database.ProvisionerStorageMethodFile,
+			FileID:         file.ID,
+			Type:           database.ProvisionerJobTypeTemplateVersionImport,
+			Input:          []byte{'{', '}'},
+		})
+		if err != nil {
+			return xerrors.Errorf("insert provisioner job: %w", err)
+		}
+
+		// Create template version
+		templateVersion, err := tx.InsertTemplateVersion(ctx, database.InsertTemplateVersionParams{
+			ID: uuid.New(),
+			TemplateID: uuid.NullUUID{
+				UUID:  uuid.Nil,
+				Valid: false,
+			},
+			OrganizationID: opts.orgID,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			Name:           namesgenerator.GetRandomName(1),
+			Readme:         "",
+			JobID:          job.ID,
+			CreatedBy: uuid.NullUUID{
+				UUID:  opts.userID,
+				Valid: true,
+			},
+		})
+		if err != nil {
+			return xerrors.Errorf("insert template version: %w", err)
+		}
+
+		// Create template
+		template, err = tx.InsertTemplate(ctx, database.InsertTemplateParams{
+			ID:                   uuid.New(),
+			CreatedAt:            now,
+			UpdatedAt:            now,
+			OrganizationID:       opts.orgID,
+			Name:                 opts.name,
+			Provisioner:          job.Provisioner,
+			ActiveVersionID:      templateVersion.ID,
+			Description:          "This template was auto-imported by Coder.",
+			MaxTtl:               int64(maxTTLDefault),
+			MinAutostartInterval: int64(minAutostartIntervalDefault),
+			CreatedBy:            opts.userID,
+			UserACL:              database.TemplateACL{},
+			GroupACL: database.TemplateACL{
+				opts.orgID.String(): []rbac.Action{rbac.ActionRead},
+			},
+		})
+		if err != nil {
+			return xerrors.Errorf("insert template: %w", err)
+		}
+
+		// Update template version with template ID
+		err = tx.UpdateTemplateVersionByID(ctx, database.UpdateTemplateVersionByIDParams{
+			ID: templateVersion.ID,
+			TemplateID: uuid.NullUUID{
+				UUID:  template.ID,
+				Valid: true,
+			},
+		})
+		if err != nil {
+			return xerrors.Errorf("update template version to set template ID: %s", err)
+		}
+
+		// Insert parameters at the template scope
+		for key, value := range opts.params {
+			_, err = tx.InsertParameterValue(ctx, database.InsertParameterValueParams{
+				ID:                uuid.New(),
+				Name:              key,
+				CreatedAt:         now,
+				UpdatedAt:         now,
+				Scope:             database.ParameterScopeTemplate,
+				ScopeID:           template.ID,
+				SourceScheme:      database.ParameterSourceSchemeData,
+				SourceValue:       value,
+				DestinationScheme: database.ParameterDestinationSchemeProvisionerVariable,
+			})
+			if err != nil {
+				return xerrors.Errorf("insert template-scoped parameter %q with value %q: %w", key, value, err)
+			}
+		}
+
+		return nil
+	})
+
+	return template, err
 }
 
 func getCreatedByNamesByTemplateIDs(ctx context.Context, db database.Store, templates []database.Template) (map[string]string, error) {
@@ -476,26 +737,39 @@ func getCreatedByNamesByTemplateIDs(ctx context.Context, db database.Store, temp
 	return creators, nil
 }
 
-func convertTemplates(templates []database.Template, workspaceCounts []database.GetWorkspaceOwnerCountsByTemplateIDsRow, createdByNameMap map[string]string) []codersdk.Template {
+func (api *API) convertTemplates(templates []database.Template, workspaceCounts []database.GetWorkspaceOwnerCountsByTemplateIDsRow, createdByNameMap map[string]string) []codersdk.Template {
 	apiTemplates := make([]codersdk.Template, 0, len(templates))
+
 	for _, template := range templates {
 		found := false
 		for _, workspaceCount := range workspaceCounts {
 			if workspaceCount.TemplateID.String() != template.ID.String() {
 				continue
 			}
-			apiTemplates = append(apiTemplates, convertTemplate(template, uint32(workspaceCount.Count), createdByNameMap[template.ID.String()]))
+			apiTemplates = append(apiTemplates, api.convertTemplate(template, uint32(workspaceCount.Count), createdByNameMap[template.ID.String()]))
 			found = true
 			break
 		}
 		if !found {
-			apiTemplates = append(apiTemplates, convertTemplate(template, uint32(0), createdByNameMap[template.ID.String()]))
+			apiTemplates = append(apiTemplates, api.convertTemplate(template, uint32(0), createdByNameMap[template.ID.String()]))
 		}
 	}
+
+	// Sort templates by ActiveUserCount DESC
+	sort.SliceStable(apiTemplates, func(i, j int) bool {
+		return apiTemplates[i].ActiveUserCount > apiTemplates[j].ActiveUserCount
+	})
+
 	return apiTemplates
 }
 
-func convertTemplate(template database.Template, workspaceOwnerCount uint32, createdByName string) codersdk.Template {
+func (api *API) convertTemplate(
+	template database.Template, workspaceOwnerCount uint32, createdByName string,
+) codersdk.Template {
+	activeCount, _ := api.metricsCache.TemplateUniqueUsers(template.ID)
+
+	buildTimeStats := api.metricsCache.TemplateBuildTimeStats(template.ID)
+
 	return codersdk.Template{
 		ID:                         template.ID,
 		CreatedAt:                  template.CreatedAt,
@@ -505,7 +779,10 @@ func convertTemplate(template database.Template, workspaceOwnerCount uint32, cre
 		Provisioner:                codersdk.ProvisionerType(template.Provisioner),
 		ActiveVersionID:            template.ActiveVersionID,
 		WorkspaceOwnerCount:        workspaceOwnerCount,
+		ActiveUserCount:            activeCount,
+		BuildTimeStats:             buildTimeStats,
 		Description:                template.Description,
+		Icon:                       template.Icon,
 		MaxTTLMillis:               time.Duration(template.MaxTtl).Milliseconds(),
 		MinAutostartIntervalMillis: time.Duration(template.MinAutostartInterval).Milliseconds(),
 		CreatedByID:                template.CreatedBy,

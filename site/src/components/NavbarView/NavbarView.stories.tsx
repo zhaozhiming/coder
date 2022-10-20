@@ -10,7 +10,9 @@ export default {
   },
 }
 
-const Template: Story<NavbarViewProps> = (args: NavbarViewProps) => <NavbarView {...args} />
+const Template: Story<NavbarViewProps> = (args: NavbarViewProps) => (
+  <NavbarView {...args} />
+)
 
 export const ForAdmin = Template.bind({})
 ForAdmin.args = {
@@ -26,4 +28,18 @@ ForMember.args = {
   onSignOut: () => {
     return Promise.resolve()
   },
+}
+
+export const SmallViewport = Template.bind({})
+SmallViewport.args = {
+  user: MockUser,
+  onSignOut: () => {
+    return Promise.resolve()
+  },
+}
+SmallViewport.parameters = {
+  viewport: {
+    defaultViewport: "tablet",
+  },
+  chromatic: { viewports: [420] },
 }

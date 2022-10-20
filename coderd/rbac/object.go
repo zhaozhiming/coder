@@ -22,12 +22,44 @@ var (
 		Type: "workspace",
 	}
 
+	// ResourceWorkspaceExecution CRUD. Org + User owner
+	//	create = workspace remote execution
+	// 	read = ?
+	//	update = ?
+	// 	delete = ?
+	ResourceWorkspaceExecution = Object{
+		Type: "workspace_execution",
+	}
+
+	// ResourceWorkspaceApplicationConnect CRUD. Org + User owner
+	//	create = connect to an application
+	// 	read = ?
+	//	update = ?
+	// 	delete = ?
+	ResourceWorkspaceApplicationConnect = Object{
+		Type: "application_connect",
+	}
+
+	// ResourceAuditLog
+	// read = access audit log
+	ResourceAuditLog = Object{
+		Type: "audit_log",
+	}
+
 	// ResourceTemplate CRUD. Org owner only.
 	//	create/delete = Make or delete a new template
 	//	update = Update the template, make new template versions
 	//	read = read the template and all versions associated
 	ResourceTemplate = Object{
 		Type: "template",
+	}
+
+	// ResourceGroup CRUD. Org admins only.
+	//	create/delete = Make or delete a new group.
+	//	update = Update the name or members of a group.
+	//	read = Read groups and their members.
+	ResourceGroup = Object{
+		Type: "group",
 	}
 
 	ResourceFile = Object{
@@ -88,7 +120,7 @@ var (
 	}
 
 	// ResourceOrganizationMember is a user's membership in an organization.
-	// Has ONLY an organization owner. The resource ID is the user's ID
+	// Has ONLY an organization owner.
 	//	create/delete  = Create/delete member from org.
 	//	update  = Update organization member
 	//	read	= View member
@@ -100,6 +132,24 @@ var (
 	ResourceWildcard = Object{
 		Type: WildcardSymbol,
 	}
+
+	// ResourceLicense is the license in the 'licenses' table.
+	// ResourceLicense is site wide.
+	// 	create/delete = add or remove license from site.
+	// 	read = view license claims
+	// 	update = not applicable; licenses are immutable
+	ResourceLicense = Object{
+		Type: "license",
+	}
+
+	// ResourceDeploymentFlags
+	ResourceDeploymentFlags = Object{
+		Type: "deployment_flags",
+	}
+
+	ResourceReplicas = Object{
+		Type: "replicas",
+	}
 )
 
 // Object is used to create objects for authz checks when you have none in
@@ -108,14 +158,15 @@ var (
 // that represents the set of workspaces you are trying to get access too.
 // Do not export this type, as it can be created from a resource type constant.
 type Object struct {
-	ResourceID string `json:"id"`
-	Owner      string `json:"owner"`
+	Owner string `json:"owner"`
 	// OrgID specifies which org the object is a part of.
 	OrgID string `json:"org_owner"`
 
 	// Type is "workspace", "project", "app", etc
 	Type string `json:"type"`
-	// TODO: SharedUsers?
+
+	ACLUserList  map[string][]Action ` json:"acl_user_list"`
+	ACLGroupList map[string][]Action ` json:"acl_group_list"`
 }
 
 func (z Object) RBACObject() Object {
@@ -125,39 +176,53 @@ func (z Object) RBACObject() Object {
 // All returns an object matching all resources of the same type.
 func (z Object) All() Object {
 	return Object{
-		ResourceID: "",
-		Owner:      "",
-		OrgID:      "",
-		Type:       z.Type,
+		Owner:        "",
+		OrgID:        "",
+		Type:         z.Type,
+		ACLUserList:  map[string][]Action{},
+		ACLGroupList: map[string][]Action{},
 	}
 }
 
 // InOrg adds an org OwnerID to the resource
 func (z Object) InOrg(orgID uuid.UUID) Object {
 	return Object{
-		ResourceID: z.ResourceID,
-		Owner:      z.Owner,
-		OrgID:      orgID.String(),
-		Type:       z.Type,
+		Owner:        z.Owner,
+		OrgID:        orgID.String(),
+		Type:         z.Type,
+		ACLUserList:  z.ACLUserList,
+		ACLGroupList: z.ACLGroupList,
 	}
 }
 
 // WithOwner adds an OwnerID to the resource
 func (z Object) WithOwner(ownerID string) Object {
 	return Object{
-		ResourceID: z.ResourceID,
-		Owner:      ownerID,
-		OrgID:      z.OrgID,
-		Type:       z.Type,
+		Owner:        ownerID,
+		OrgID:        z.OrgID,
+		Type:         z.Type,
+		ACLUserList:  z.ACLUserList,
+		ACLGroupList: z.ACLGroupList,
 	}
 }
 
-// WithID adds a ResourceID to the resource
-func (z Object) WithID(resourceID string) Object {
+// WithACLUserList adds an ACL list to a given object
+func (z Object) WithACLUserList(acl map[string][]Action) Object {
 	return Object{
-		ResourceID: resourceID,
-		Owner:      z.Owner,
-		OrgID:      z.OrgID,
-		Type:       z.Type,
+		Owner:        z.Owner,
+		OrgID:        z.OrgID,
+		Type:         z.Type,
+		ACLUserList:  acl,
+		ACLGroupList: z.ACLGroupList,
+	}
+}
+
+func (z Object) WithGroupACL(groups map[string][]Action) Object {
+	return Object{
+		Owner:        z.Owner,
+		OrgID:        z.OrgID,
+		Type:         z.Type,
+		ACLUserList:  z.ACLUserList,
+		ACLGroupList: groups,
 	}
 }

@@ -119,7 +119,8 @@ export const FormTextField = <T,>({
   variant = "outlined",
   ...rest
 }: FormTextFieldProps<T>): ReactElement => {
-  const isError = form.touched[formFieldName] && Boolean(form.errors[formFieldName])
+  const isError =
+    form.touched[formFieldName] && Boolean(form.errors[formFieldName])
 
   // Conversion to a string primitive is necessary as formFieldName is an in
   // indexable type such as a string, number or enum.
@@ -134,7 +135,7 @@ export const FormTextField = <T,>({
       variant={variant}
       disabled={disabled || form.isSubmitting}
       error={isError}
-      helperText={isError ? form.errors[formFieldName] : helperText}
+      helperText={isError ? form.errors[formFieldName]?.toString() : helperText}
       id={fieldId}
       InputProps={isPassword ? undefined : InputProps}
       name={fieldId}
@@ -145,7 +146,10 @@ export const FormTextField = <T,>({
         }
 
         const event = e
-        if (typeof eventTransform !== "undefined" && typeof event.target.value === "string") {
+        if (
+          typeof eventTransform !== "undefined" &&
+          typeof event.target.value === "string"
+        ) {
           event.target.value = eventTransform(e.target.value)
         }
         form.handleChange(event)

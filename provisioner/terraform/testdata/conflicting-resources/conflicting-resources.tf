@@ -2,24 +2,24 @@ terraform {
   required_providers {
     coder = {
       source  = "coder/coder"
-      version = "0.4.2"
+      version = "0.5.3"
     }
   }
 }
 
-resource "coder_agent" "dev" {
+resource "coder_agent" "main" {
   os   = "linux"
   arch = "amd64"
 }
 
 resource "null_resource" "first" {
   depends_on = [
-    coder_agent.dev
+    coder_agent.main
   ]
 }
 
 resource "null_resource" "second" {
   depends_on = [
-    coder_agent.dev
+    coder_agent.main
   ]
 }

@@ -29,7 +29,7 @@ func templatePull() *cobra.Command {
 				dest = args[1]
 			}
 
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return xerrors.Errorf("create client: %w", err)
 			}
@@ -66,7 +66,7 @@ func templatePull() *cobra.Command {
 			latest := versions[0]
 
 			// Download the tar archive.
-			raw, ctype, err := client.Download(ctx, latest.Job.StorageSource)
+			raw, ctype, err := client.Download(ctx, latest.Job.FileID)
 			if err != nil {
 				return xerrors.Errorf("download template: %w", err)
 			}

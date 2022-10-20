@@ -27,9 +27,9 @@ func TestExecutorAutostartOK(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace that has autostart enabled
 		workspace = mustProvisionWorkspace(t, client, func(cwr *codersdk.CreateWorkspaceRequest) {
@@ -66,9 +66,9 @@ func TestExecutorAutostartTemplateUpdated(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace that has autostart enabled
 		workspace = mustProvisionWorkspace(t, client, func(cwr *codersdk.CreateWorkspaceRequest) {
@@ -113,9 +113,9 @@ func TestExecutorAutostartAlreadyRunning(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace that has autostart enabled
 		workspace = mustProvisionWorkspace(t, client, func(cwr *codersdk.CreateWorkspaceRequest) {
@@ -145,9 +145,9 @@ func TestExecutorAutostartNotEnabled(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace that does not have autostart enabled
 		workspace = mustProvisionWorkspace(t, client, func(cwr *codersdk.CreateWorkspaceRequest) {
@@ -180,9 +180,9 @@ func TestExecutorAutostopOK(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace
 		workspace = mustProvisionWorkspace(t, client)
@@ -193,7 +193,7 @@ func TestExecutorAutostopOK(t *testing.T) {
 
 	// When: the autobuild executor ticks *after* the deadline:
 	go func() {
-		tickCh <- workspace.LatestBuild.Deadline.Add(time.Minute)
+		tickCh <- workspace.LatestBuild.Deadline.Time.Add(time.Minute)
 		close(tickCh)
 	}()
 
@@ -216,9 +216,9 @@ func TestExecutorAutostopExtend(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace
 		workspace        = mustProvisionWorkspace(t, client)
@@ -229,7 +229,7 @@ func TestExecutorAutostopExtend(t *testing.T) {
 	require.NotZero(t, originalDeadline)
 
 	// Given: we extend the workspace deadline
-	newDeadline := originalDeadline.Add(30 * time.Minute)
+	newDeadline := originalDeadline.Time.Add(30 * time.Minute)
 	err := client.PutExtendWorkspace(ctx, workspace.ID, codersdk.PutExtendWorkspaceRequest{
 		Deadline: newDeadline,
 	})
@@ -237,7 +237,7 @@ func TestExecutorAutostopExtend(t *testing.T) {
 
 	// When: the autobuild executor ticks *after* the original deadline:
 	go func() {
-		tickCh <- originalDeadline.Add(time.Minute)
+		tickCh <- originalDeadline.Time.Add(time.Minute)
 	}()
 
 	// Then: nothing should happen and the workspace should stay running
@@ -266,9 +266,9 @@ func TestExecutorAutostopAlreadyStopped(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace (disabling autostart)
 		workspace = mustProvisionWorkspace(t, client, func(cwr *codersdk.CreateWorkspaceRequest) {
@@ -281,7 +281,7 @@ func TestExecutorAutostopAlreadyStopped(t *testing.T) {
 
 	// When: the autobuild executor ticks past the TTL
 	go func() {
-		tickCh <- workspace.LatestBuild.Deadline.Add(time.Minute)
+		tickCh <- workspace.LatestBuild.Deadline.Time.Add(time.Minute)
 		close(tickCh)
 	}()
 
@@ -299,9 +299,9 @@ func TestExecutorAutostopNotEnabled(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace
 		workspace = mustProvisionWorkspace(t, client)
@@ -323,7 +323,7 @@ func TestExecutorAutostopNotEnabled(t *testing.T) {
 
 	// When: the autobuild executor ticks past the TTL
 	go func() {
-		tickCh <- workspace.LatestBuild.Deadline.Add(time.Minute)
+		tickCh <- workspace.LatestBuild.Deadline.Time.Add(time.Minute)
 		close(tickCh)
 	}()
 
@@ -341,9 +341,9 @@ func TestExecutorWorkspaceDeleted(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace that has autostart enabled
 		workspace = mustProvisionWorkspace(t, client, func(cwr *codersdk.CreateWorkspaceRequest) {
@@ -374,9 +374,9 @@ func TestExecutorWorkspaceAutostartTooEarly(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// futureTime     = time.Now().Add(time.Hour)
 		// futureTimeCron = fmt.Sprintf("%d %d * * *", futureTime.Minute(), futureTime.Hour())
@@ -405,9 +405,9 @@ func TestExecutorWorkspaceAutostopBeforeDeadline(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace
 		workspace = mustProvisionWorkspace(t, client)
@@ -415,7 +415,7 @@ func TestExecutorWorkspaceAutostopBeforeDeadline(t *testing.T) {
 
 	// When: the autobuild executor ticks before the TTL
 	go func() {
-		tickCh <- workspace.LatestBuild.Deadline.Add(-1 * time.Minute)
+		tickCh <- workspace.LatestBuild.Deadline.Time.Add(-1 * time.Minute)
 		close(tickCh)
 	}()
 
@@ -433,9 +433,9 @@ func TestExecutorWorkspaceAutostopNoWaitChangedMyMind(t *testing.T) {
 		tickCh  = make(chan time.Time)
 		statsCh = make(chan executor.Stats)
 		client  = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh,
 		})
 		// Given: we have a user with a workspace
 		workspace = mustProvisionWorkspace(t, client)
@@ -447,11 +447,11 @@ func TestExecutorWorkspaceAutostopNoWaitChangedMyMind(t *testing.T) {
 
 	// Then: the deadline should still be the original value
 	updated := coderdtest.MustWorkspace(t, client, workspace.ID)
-	assert.WithinDuration(t, workspace.LatestBuild.Deadline, updated.LatestBuild.Deadline, time.Minute)
+	assert.WithinDuration(t, workspace.LatestBuild.Deadline.Time, updated.LatestBuild.Deadline.Time, time.Minute)
 
 	// When: the autobuild executor ticks after the original deadline
 	go func() {
-		tickCh <- workspace.LatestBuild.Deadline.Add(time.Minute)
+		tickCh <- workspace.LatestBuild.Deadline.Time.Add(time.Minute)
 	}()
 
 	// Then: the workspace should stop
@@ -478,7 +478,7 @@ func TestExecutorWorkspaceAutostopNoWaitChangedMyMind(t *testing.T) {
 
 	// When: the relentless onward march of time continues
 	go func() {
-		tickCh <- workspace.LatestBuild.Deadline.Add(newTTL + time.Minute)
+		tickCh <- workspace.LatestBuild.Deadline.Time.Add(newTTL + time.Minute)
 		close(tickCh)
 	}()
 
@@ -502,14 +502,14 @@ func TestExecutorAutostartMultipleOK(t *testing.T) {
 		statsCh1 = make(chan executor.Stats)
 		statsCh2 = make(chan executor.Stats)
 		client   = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh1,
+			AutobuildTicker:          tickCh,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh1,
 		})
 		_ = coderdtest.New(t, &coderdtest.Options{
-			AutobuildTicker:     tickCh2,
-			IncludeProvisionerD: true,
-			AutobuildStats:      statsCh2,
+			AutobuildTicker:          tickCh2,
+			IncludeProvisionerDaemon: true,
+			AutobuildStats:           statsCh2,
 		})
 		// Given: we have a user with a workspace that has autostart enabled (default)
 		workspace = mustProvisionWorkspace(t, client, func(cwr *codersdk.CreateWorkspaceRequest) {

@@ -88,7 +88,7 @@ resource "docker_image" "coder_image" {
 Update the template:
 
 ```sh
-coder template update docker-image-builds
+coder template push docker-image-builds
 ```
 
 You can also remove images from the validation list. Workspaces using older template versions will continue using
@@ -136,7 +136,7 @@ resource "docker_image" "coder_image" {
 Update the template:
 
 ```sh
-coder template update docker-image-builds
+coder template push docker-image-builds
 ```
 
 Optional: Update workspaces to the latest template version
@@ -145,6 +145,12 @@ Optional: Update workspaces to the latest template version
 coder ls
 coder update [workspace name]
 ```
+
+## code-server
+
+`code-server` is installed via the `startup_script` argument in the `coder_agent`
+resource block. The `coder_app` resource is defined to access `code-server` through
+the dashboard UI over `localhost:13337`.
 
 ## Extending this template
 

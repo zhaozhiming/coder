@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,30 +17,33 @@ func state() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "state",
 		Short: "Manually manage Terraform state to fix broken workspaces",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
 	}
 	cmd.AddCommand(statePull(), statePush())
 	return cmd
 }
 
 func statePull() *cobra.Command {
-	var buildName string
+	var buildNumber int
 	cmd := &cobra.Command{
 		Use:  "pull <workspace> [file]",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := createClient(cmd)
-			if err != nil {
-				return err
-			}
-			workspace, err := namedWorkspace(cmd, client, args[0])
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}
 			var build codersdk.WorkspaceBuild
-			if buildName == "latest" {
+			if buildNumber == 0 {
+				workspace, err := namedWorkspace(cmd, client, args[0])
+				if err != nil {
+					return err
+				}
 				build = workspace.LatestBuild
 			} else {
-				build, err = client.WorkspaceBuildByName(cmd.Context(), workspace.ID, buildName)
+				build, err = client.WorkspaceBuildByUsernameAndWorkspaceNameAndBuildNumber(cmd.Context(), codersdk.Me, args[0], strconv.Itoa(buildNumber))
 				if err != nil {
 					return err
 				}
@@ -50,24 +55,24 @@ func statePull() *cobra.Command {
 			}
 
 			if len(args) < 2 {
-				cmd.Println(string(state))
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(state))
 				return nil
 			}
 
 			return os.WriteFile(args[1], state, 0600)
 		},
 	}
-	cmd.Flags().StringVarP(&buildName, "build", "b", "latest", "Specify a workspace build to target by name.")
+	cmd.Flags().IntVarP(&buildNumber, "build", "b", 0, "Specify a workspace build to target by name.")
 	return cmd
 }
 
 func statePush() *cobra.Command {
-	var buildName string
+	var buildNumber int
 	cmd := &cobra.Command{
 		Use:  "push <workspace> <file>",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := createClient(cmd)
+			client, err := CreateClient(cmd)
 			if err != nil {
 				return err
 			}
@@ -76,10 +81,10 @@ func statePush() *cobra.Command {
 				return err
 			}
 			var build codersdk.WorkspaceBuild
-			if buildName == "latest" {
+			if buildNumber == 0 {
 				build = workspace.LatestBuild
 			} else {
-				build, err = client.WorkspaceBuildByName(cmd.Context(), workspace.ID, buildName)
+				build, err = client.WorkspaceBuildByUsernameAndWorkspaceNameAndBuildNumber(cmd.Context(), codersdk.Me, args[0], strconv.Itoa(buildNumber))
 				if err != nil {
 					return err
 				}
@@ -107,6 +112,6 @@ func statePush() *cobra.Command {
 			return cliui.WorkspaceBuild(cmd.Context(), cmd.OutOrStderr(), client, build.ID, before)
 		},
 	}
-	cmd.Flags().StringVarP(&buildName, "build", "b", "latest", "Specify a workspace build to target by name.")
+	cmd.Flags().IntVarP(&buildNumber, "build", "b", 0, "Specify a workspace build to target by name.")
 	return cmd
 }

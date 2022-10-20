@@ -1,17 +1,19 @@
 import { useInterpret } from "@xstate/react"
-import React, { createContext } from "react"
-import { useNavigate } from "react-router"
+import { createContext, FC, ReactNode } from "react"
 import { ActorRefFrom } from "xstate"
 import { authMachine } from "./auth/authXService"
 import { buildInfoMachine } from "./buildInfo/buildInfoXService"
+import { deploymentFlagsMachine } from "./deploymentFlags/deploymentFlagsMachine"
+import { entitlementsMachine } from "./entitlements/entitlementsXService"
 import { siteRolesMachine } from "./roles/siteRolesXService"
-import { usersMachine } from "./users/usersXService"
 
 interface XServiceContextType {
   authXService: ActorRefFrom<typeof authMachine>
   buildInfoXService: ActorRefFrom<typeof buildInfoMachine>
-  usersXService: ActorRefFrom<typeof usersMachine>
+  entitlementsXService: ActorRefFrom<typeof entitlementsMachine>
   siteRolesXService: ActorRefFrom<typeof siteRolesMachine>
+  // Since the info here is used by multiple deployment settings page and we don't want to refetch them every time
+  deploymentFlagsXService: ActorRefFrom<typeof deploymentFlagsMachine>
 }
 
 /**
@@ -24,21 +26,15 @@ interface XServiceContextType {
  */
 export const XServiceContext = createContext({} as XServiceContextType)
 
-export const XServiceProvider: React.FC = ({ children }) => {
-  const navigate = useNavigate()
-  const redirectToUsersPage = () => {
-    navigate("users")
-  }
-
+export const XServiceProvider: FC<{ children: ReactNode }> = ({ children }) => {
   return (
     <XServiceContext.Provider
       value={{
         authXService: useInterpret(authMachine),
         buildInfoXService: useInterpret(buildInfoMachine),
-        usersXService: useInterpret(() =>
-          usersMachine.withConfig({ actions: { redirectToUsersPage } }),
-        ),
+        entitlementsXService: useInterpret(entitlementsMachine),
         siteRolesXService: useInterpret(siteRolesMachine),
+        deploymentFlagsXService: useInterpret(deploymentFlagsMachine),
       }}
     >
       {children}

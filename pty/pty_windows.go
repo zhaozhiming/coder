@@ -1,10 +1,10 @@
 //go:build windows
-// +build windows
 
 package pty
 
 import (
 	"os"
+	"os/exec"
 	"sync"
 	"unsafe"
 
@@ -21,7 +21,12 @@ var (
 )
 
 // See: https://docs.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
-func newPty() (PTY, error) {
+func newPty(opt ...Option) (PTY, error) {
+	var opts ptyOptions
+	for _, o := range opt {
+		o(&opts)
+	}
+
 	// We use the CreatePseudoConsole API which was introduced in build 17763
 	vsn := windows.RtlGetVersion()
 	if vsn.MajorVersion < 10 ||
@@ -31,30 +36,42 @@ func newPty() (PTY, error) {
 		return nil, xerrors.Errorf("pty not supported")
 	}
 
-	ptyWindows := &ptyWindows{}
+	pty := &ptyWindows{
+		opts: opts,
+	}
 
 	var err error
-	ptyWindows.inputRead, ptyWindows.inputWrite, err = os.Pipe()
+	pty.inputRead, pty.inputWrite, err = os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	ptyWindows.outputRead, ptyWindows.outputWrite, err = os.Pipe()
+	pty.outputRead, pty.outputWrite, err = os.Pipe()
+	if err != nil {
+		_ = pty.inputRead.Close()
+		_ = pty.inputWrite.Close()
+		return nil, err
+	}
 
 	consoleSize := uintptr(80) + (uintptr(80) << 16)
+	if opts.sshReq != nil {
+		consoleSize = uintptr(opts.sshReq.Window.Width) + (uintptr(opts.sshReq.Window.Height) << 16)
+	}
 	ret, _, err := procCreatePseudoConsole.Call(
 		consoleSize,
-		uintptr(ptyWindows.inputRead.Fd()),
-		uintptr(ptyWindows.outputWrite.Fd()),
+		uintptr(pty.inputRead.Fd()),
+		uintptr(pty.outputWrite.Fd()),
 		0,
-		uintptr(unsafe.Pointer(&ptyWindows.console)),
+		uintptr(unsafe.Pointer(&pty.console)),
 	)
 	if int32(ret) < 0 {
+		_ = pty.Close()
 		return nil, xerrors.Errorf("create pseudo console (%d): %w", int32(ret), err)
 	}
-	return ptyWindows, nil
+	return pty, nil
 }
 
 type ptyWindows struct {
+	opts    ptyOptions
 	console windows.Handle
 
 	outputWrite *os.File
@@ -64,6 +81,20 @@ type ptyWindows struct {
 
 	closeMutex sync.Mutex
 	closed     bool
+}
+
+type windowsProcess struct {
+	// cmdDone protects access to cmdErr: anything reading cmdErr should read from cmdDone first.
+	cmdDone chan any
+	cmdErr  error
+	proc    *os.Process
+}
+
+// Name returns the TTY name on Windows.
+//
+// Not implemented.
+func (p *ptyWindows) Name() string {
+	return ""
 }
 
 func (p *ptyWindows) Output() ReadWriter {
@@ -110,4 +141,26 @@ func (p *ptyWindows) Close() error {
 	}
 
 	return nil
+}
+
+func (p *windowsProcess) waitInternal() {
+	defer close(p.cmdDone)
+	state, err := p.proc.Wait()
+	if err != nil {
+		p.cmdErr = err
+		return
+	}
+	if !state.Success() {
+		p.cmdErr = &exec.ExitError{ProcessState: state}
+		return
+	}
+}
+
+func (p *windowsProcess) Wait() error {
+	<-p.cmdDone
+	return p.cmdErr
+}
+
+func (p *windowsProcess) Kill() error {
+	return p.proc.Kill()
 }

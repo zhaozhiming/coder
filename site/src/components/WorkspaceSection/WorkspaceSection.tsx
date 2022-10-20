@@ -2,7 +2,7 @@ import Paper from "@material-ui/core/Paper"
 import { makeStyles } from "@material-ui/core/styles"
 import Typography from "@material-ui/core/Typography"
 import React, { HTMLProps } from "react"
-import { CardPadding, CardRadius } from "../../theme/constants"
+import { CardPadding } from "../../theme/constants"
 import { combineClasses } from "../../util/combineClasses"
 
 export interface WorkspaceSectionProps {
@@ -11,15 +11,12 @@ export interface WorkspaceSectionProps {
    */
   action?: React.ReactNode
   contentsProps?: HTMLProps<HTMLDivElement>
-  title?: string
+  title?: string | JSX.Element
 }
 
-export const WorkspaceSection: React.FC<WorkspaceSectionProps> = ({
-  action,
-  children,
-  contentsProps,
-  title,
-}) => {
+export const WorkspaceSection: React.FC<
+  React.PropsWithChildren<WorkspaceSectionProps>
+> = ({ action, children, contentsProps, title }) => {
   const styles = useStyles()
 
   return (
@@ -44,7 +41,7 @@ export const WorkspaceSection: React.FC<WorkspaceSectionProps> = ({
 const useStyles = makeStyles((theme) => ({
   root: {
     border: `1px solid ${theme.palette.divider}`,
-    borderRadius: CardRadius,
+    borderRadius: theme.shape.borderRadius,
   },
   contents: {
     margin: theme.spacing(2),

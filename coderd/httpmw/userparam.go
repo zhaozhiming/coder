@@ -33,30 +33,48 @@ func UserParam(r *http.Request) database.User {
 	return user
 }
 
-// ExtractUserParam extracts a user from an ID/username in the {user} URL parameter.
-func ExtractUserParam(db database.Store) func(http.Handler) http.Handler {
+// ExtractUserParam extracts a user from an ID/username in the {user} URL
+// parameter.
+//
+//nolint:revive
+func ExtractUserParam(db database.Store, redirectToLoginOnMe bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-			var user database.User
-			var err error
+			var (
+				ctx  = r.Context()
+				user database.User
+				err  error
+			)
 
 			// userQuery is either a uuid, a username, or 'me'
 			userQuery := chi.URLParam(r, "user")
 			if userQuery == "" {
-				httpapi.Write(rw, http.StatusBadRequest, codersdk.Response{
+				httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
 					Message: "\"user\" must be provided.",
 				})
 				return
 			}
 
 			if userQuery == "me" {
-				user, err = db.GetUserByID(r.Context(), APIKey(r).UserID)
+				apiKey, ok := APIKeyOptional(r)
+				if !ok {
+					if redirectToLoginOnMe {
+						RedirectToLogin(rw, r, SignedOutErrorMessage)
+						return
+					}
+
+					httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+						Message: "Cannot use \"me\" without a valid session.",
+					})
+					return
+				}
+				user, err = db.GetUserByID(ctx, apiKey.UserID)
 				if xerrors.Is(err, sql.ErrNoRows) {
 					httpapi.ResourceNotFound(rw)
 					return
 				}
 				if err != nil {
-					httpapi.Write(rw, http.StatusInternalServerError, codersdk.Response{
+					httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 						Message: "Internal error fetching user.",
 						Detail:  err.Error(),
 					})
@@ -64,27 +82,27 @@ func ExtractUserParam(db database.Store) func(http.Handler) http.Handler {
 				}
 			} else if userID, err := uuid.Parse(userQuery); err == nil {
 				// If the userQuery is a valid uuid
-				user, err = db.GetUserByID(r.Context(), userID)
+				user, err = db.GetUserByID(ctx, userID)
 				if err != nil {
-					httpapi.Write(rw, http.StatusBadRequest, codersdk.Response{
+					httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
 						Message: userErrorMessage,
 					})
 					return
 				}
 			} else {
 				// Try as a username last
-				user, err = db.GetUserByEmailOrUsername(r.Context(), database.GetUserByEmailOrUsernameParams{
+				user, err = db.GetUserByEmailOrUsername(ctx, database.GetUserByEmailOrUsernameParams{
 					Username: userQuery,
 				})
 				if err != nil {
-					httpapi.Write(rw, http.StatusBadRequest, codersdk.Response{
+					httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
 						Message: userErrorMessage,
 					})
 					return
 				}
 			}
 
-			ctx := context.WithValue(r.Context(), userParamContextKey{}, user)
+			ctx = context.WithValue(ctx, userParamContextKey{}, user)
 			next.ServeHTTP(rw, r.WithContext(ctx))
 		})
 	}

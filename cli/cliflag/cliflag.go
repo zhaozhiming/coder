@@ -6,8 +6,7 @@
 //
 // Will produce the following usage docs:
 //
-//   -a, --address string              The address to serve the API and dashboard (uses $CODER_ADDRESS). (default "127.0.0.1:3000")
-//
+//	-a, --address string              The address to serve the API and dashboard (uses $CODER_ADDRESS). (default "127.0.0.1:3000")
 package cliflag
 
 import (
@@ -19,6 +18,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/coder/coder/cli/cliui"
 )
 
 // IsSetBool returns the value of the boolean flag if it is set.
@@ -62,6 +63,18 @@ func StringVarP(flagset *pflag.FlagSet, p *string, name string, shorthand string
 	flagset.StringVarP(p, name, shorthand, v, fmtUsage(usage, env))
 }
 
+func StringArray(flagset *pflag.FlagSet, name, shorthand, env string, def []string, usage string) {
+	v, ok := os.LookupEnv(env)
+	if !ok || v == "" {
+		if v == "" {
+			def = []string{}
+		} else {
+			def = strings.Split(v, ",")
+		}
+	}
+	flagset.StringArrayP(name, shorthand, def, fmtUsage(usage, env))
+}
+
 func StringArrayVarP(flagset *pflag.FlagSet, ptr *[]string, name string, shorthand string, env string, def []string, usage string) {
 	val, ok := os.LookupEnv(env)
 	if ok {
@@ -89,6 +102,23 @@ func Uint8VarP(flagset *pflag.FlagSet, ptr *uint8, name string, shorthand string
 	}
 
 	flagset.Uint8VarP(ptr, name, shorthand, uint8(vi64), fmtUsage(usage, env))
+}
+
+// IntVarP sets a uint8 flag on the given flag set.
+func IntVarP(flagset *pflag.FlagSet, ptr *int, name string, shorthand string, env string, def int, usage string) {
+	val, ok := os.LookupEnv(env)
+	if !ok || val == "" {
+		flagset.IntVarP(ptr, name, shorthand, def, fmtUsage(usage, env))
+		return
+	}
+
+	vi64, err := strconv.ParseUint(val, 10, 8)
+	if err != nil {
+		flagset.IntVarP(ptr, name, shorthand, def, fmtUsage(usage, env))
+		return
+	}
+
+	flagset.IntVarP(ptr, name, shorthand, int(vi64), fmtUsage(usage, env))
 }
 
 func Bool(flagset *pflag.FlagSet, name, shorthand, env string, def bool, usage string) {
@@ -148,7 +178,7 @@ func fmtUsage(u string, env string) string {
 		if strings.HasSuffix(u, ".") {
 			dot = ""
 		}
-		u = fmt.Sprintf("%s%s\nConsumes $%s", u, dot, env)
+		u = fmt.Sprintf("%s%s\n"+cliui.Styles.Placeholder.Render("Consumes $%s"), u, dot, env)
 	}
 
 	return u

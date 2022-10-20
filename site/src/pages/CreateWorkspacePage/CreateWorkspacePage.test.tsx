@@ -1,24 +1,28 @@
-import { screen, waitFor } from "@testing-library/react"
+/* eslint-disable @typescript-eslint/no-floating-promises */
+import { fireEvent, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import * as API from "../../api/api"
-import { Language as FooterLanguage } from "../../components/FormFooter/FormFooter"
-import { MockTemplate, MockWorkspace } from "../../testHelpers/entities"
-import { renderWithAuth } from "../../testHelpers/renderHelpers"
+import * as API from "api/api"
+import { Language as FooterLanguage } from "components/FormFooter/FormFooter"
+import i18next from "i18next"
+import {
+  MockTemplate,
+  MockUser,
+  MockWorkspace,
+  MockWorkspaceQuota,
+  MockWorkspaceRequest,
+} from "testHelpers/entities"
+import { renderWithAuth } from "testHelpers/renderHelpers"
 import CreateWorkspacePage from "./CreateWorkspacePage"
-import { Language } from "./CreateWorkspacePageView"
+
+const { t } = i18next
+
+const nameLabelText = t("nameLabel", { ns: "createWorkspacePage" })
 
 const renderCreateWorkspacePage = () => {
   return renderWithAuth(<CreateWorkspacePage />, {
     route: "/templates/" + MockTemplate.name + "/workspace",
     path: "/templates/:template/workspace",
   })
-}
-
-const fillForm = async ({ name = "example" }: { name?: string }) => {
-  const nameField = await screen.findByLabelText(Language.nameLabel)
-  await userEvent.type(nameField, name)
-  const submitButton = await screen.findByText(FooterLanguage.defaultSubmitLabel)
-  await userEvent.click(submitButton)
 }
 
 describe("CreateWorkspacePage", () => {
@@ -28,12 +32,33 @@ describe("CreateWorkspacePage", () => {
     expect(element).toBeDefined()
   })
 
-  it("succeeds", async () => {
-    renderCreateWorkspacePage()
-    // You have to spy the method before it is used.
+  it("succeeds with default owner", async () => {
+    jest.spyOn(API, "getUsers").mockResolvedValueOnce([MockUser])
+    jest
+      .spyOn(API, "getWorkspaceQuota")
+      .mockResolvedValueOnce(MockWorkspaceQuota)
     jest.spyOn(API, "createWorkspace").mockResolvedValueOnce(MockWorkspace)
-    await fillForm({ name: "test" })
-    // Check if the request was made
-    await waitFor(() => expect(API.createWorkspace).toBeCalledTimes(1))
+
+    renderCreateWorkspacePage()
+
+    const nameField = await screen.findByLabelText(nameLabelText)
+
+    // have to use fireEvent b/c userEvent isn't cleaning up properly between tests
+    fireEvent.change(nameField, {
+      target: { value: "test" },
+    })
+
+    const submitButton = screen.getByText(FooterLanguage.defaultSubmitLabel)
+    userEvent.click(submitButton)
+
+    await waitFor(() =>
+      expect(API.createWorkspace).toBeCalledWith(
+        MockUser.organization_ids[0],
+        MockUser.id,
+        {
+          ...MockWorkspaceRequest,
+        },
+      ),
+    )
   })
 })

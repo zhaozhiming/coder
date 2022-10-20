@@ -1,14 +1,14 @@
 {
   "format_version": "1.1",
-  "terraform_version": "1.2.2",
+  "terraform_version": "1.2.8",
   "planned_values": {
     "root_module": {
       "resources": [
         {
-          "address": "coder_agent.dev",
+          "address": "coder_agent.main",
           "mode": "managed",
           "type": "coder_agent",
-          "name": "dev",
+          "name": "main",
           "provider_name": "registry.terraform.io/coder/coder",
           "schema_version": 0,
           "values": {
@@ -22,10 +22,10 @@
           "sensitive_values": {}
         },
         {
-          "address": "coder_agent_instance.dev",
+          "address": "coder_agent_instance.main",
           "mode": "managed",
           "type": "coder_agent_instance",
-          "name": "dev",
+          "name": "main",
           "provider_name": "registry.terraform.io/coder/coder",
           "schema_version": 0,
           "values": {
@@ -34,10 +34,10 @@
           "sensitive_values": {}
         },
         {
-          "address": "null_resource.dev",
+          "address": "null_resource.main",
           "mode": "managed",
           "type": "null_resource",
-          "name": "dev",
+          "name": "main",
           "provider_name": "registry.terraform.io/hashicorp/null",
           "schema_version": 0,
           "values": {
@@ -50,15 +50,13 @@
   },
   "resource_changes": [
     {
-      "address": "coder_agent.dev",
+      "address": "coder_agent.main",
       "mode": "managed",
       "type": "coder_agent",
-      "name": "dev",
+      "name": "main",
       "provider_name": "registry.terraform.io/coder/coder",
       "change": {
-        "actions": [
-          "create"
-        ],
+        "actions": ["create"],
         "before": null,
         "after": {
           "arch": "amd64",
@@ -74,19 +72,19 @@
           "token": true
         },
         "before_sensitive": false,
-        "after_sensitive": {}
+        "after_sensitive": {
+          "token": true
+        }
       }
     },
     {
-      "address": "coder_agent_instance.dev",
+      "address": "coder_agent_instance.main",
       "mode": "managed",
       "type": "coder_agent_instance",
-      "name": "dev",
+      "name": "main",
       "provider_name": "registry.terraform.io/coder/coder",
       "change": {
-        "actions": [
-          "create"
-        ],
+        "actions": ["create"],
         "before": null,
         "after": {
           "instance_id": "example"
@@ -100,15 +98,13 @@
       }
     },
     {
-      "address": "null_resource.dev",
+      "address": "null_resource.main",
       "mode": "managed",
       "type": "null_resource",
-      "name": "dev",
+      "name": "main",
       "provider_name": "registry.terraform.io/hashicorp/null",
       "change": {
-        "actions": [
-          "create"
-        ],
+        "actions": ["create"],
         "before": null,
         "after": {
           "triggers": null
@@ -126,7 +122,7 @@
       "coder": {
         "name": "coder",
         "full_name": "registry.terraform.io/coder/coder",
-        "version_constraint": "0.4.2"
+        "version_constraint": "0.5.0"
       },
       "null": {
         "name": "null",
@@ -136,10 +132,10 @@
     "root_module": {
       "resources": [
         {
-          "address": "coder_agent.dev",
+          "address": "coder_agent.main",
           "mode": "managed",
           "type": "coder_agent",
-          "name": "dev",
+          "name": "main",
           "provider_config_key": "coder",
           "expressions": {
             "arch": {
@@ -155,17 +151,14 @@
           "schema_version": 0
         },
         {
-          "address": "coder_agent_instance.dev",
+          "address": "coder_agent_instance.main",
           "mode": "managed",
           "type": "coder_agent_instance",
-          "name": "dev",
+          "name": "main",
           "provider_config_key": "coder",
           "expressions": {
             "agent_id": {
-              "references": [
-                "coder_agent.dev.id",
-                "coder_agent.dev"
-              ]
+              "references": ["coder_agent.main.id", "coder_agent.main"]
             },
             "instance_id": {
               "constant_value": "example"
@@ -174,25 +167,21 @@
           "schema_version": 0
         },
         {
-          "address": "null_resource.dev",
+          "address": "null_resource.main",
           "mode": "managed",
           "type": "null_resource",
-          "name": "dev",
+          "name": "main",
           "provider_config_key": "null",
           "schema_version": 0,
-          "depends_on": [
-            "coder_agent.dev"
-          ]
+          "depends_on": ["coder_agent.main"]
         }
       ]
     }
   },
   "relevant_attributes": [
     {
-      "resource": "coder_agent.dev",
-      "attribute": [
-        "id"
-      ]
+      "resource": "coder_agent.main",
+      "attribute": ["id"]
     }
   ]
 }

@@ -1,13 +1,22 @@
-import { screen } from "@testing-library/react"
+import { fireEvent, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { rest } from "msw"
 import * as API from "../../../api/api"
 import { Language as FormLanguage } from "../../../components/CreateUserForm/CreateUserForm"
 import { Language as FooterLanguage } from "../../../components/FormFooter/FormFooter"
-import { history, render } from "../../../testHelpers/renderHelpers"
+import {
+  history,
+  renderWithAuth,
+  waitForLoaderToBeRemoved,
+} from "../../../testHelpers/renderHelpers"
 import { server } from "../../../testHelpers/server"
-import { Language as UserLanguage } from "../../../xServices/users/usersXService"
+import { Language as CreateUserLanguage } from "../../../xServices/users/createUserXService"
 import { CreateUserPage } from "./CreateUserPage"
+
+const renderCreateUserPage = async () => {
+  renderWithAuth(<CreateUserPage />)
+  await waitForLoaderToBeRemoved()
+}
 
 const fillForm = async ({
   username = "someuser",
@@ -24,8 +33,10 @@ const fillForm = async ({
   await userEvent.type(usernameField, username)
   await userEvent.type(emailField, email)
   await userEvent.type(passwordField, password)
-  const submitButton = await screen.findByText(FooterLanguage.defaultSubmitLabel)
-  submitButton.click()
+  const submitButton = await screen.findByText(
+    FooterLanguage.defaultSubmitLabel,
+  )
+  fireEvent.click(submitButton)
 }
 
 describe("Create User Page", () => {
@@ -34,7 +45,7 @@ describe("Create User Page", () => {
   })
 
   it("shows validation error message", async () => {
-    render(<CreateUserPage />)
+    await renderCreateUserPage()
     await fillForm({ email: "test" })
     const errorMessage = await screen.findByText(FormLanguage.emailInvalid)
     expect(errorMessage).toBeDefined()
@@ -44,9 +55,11 @@ describe("Create User Page", () => {
     jest.spyOn(API, "createUser").mockRejectedValueOnce({
       data: "unknown error",
     })
-    render(<CreateUserPage />)
+    await renderCreateUserPage()
     await fillForm({})
-    const errorMessage = await screen.findByText(UserLanguage.createUserError)
+    const errorMessage = await screen.findByText(
+      CreateUserLanguage.createUserError,
+    )
     expect(errorMessage).toBeDefined()
   })
 
@@ -68,30 +81,18 @@ describe("Create User Page", () => {
         )
       }),
     )
-    render(<CreateUserPage />)
+    await renderCreateUserPage()
     await fillForm({})
     const errorMessage = await screen.findByText(fieldErrorMessage)
     expect(errorMessage).toBeDefined()
   })
 
   it("shows success notification and redirects to users page", async () => {
-    render(<CreateUserPage />)
+    await renderCreateUserPage()
     await fillForm({})
-    const successMessage = screen.findByText(UserLanguage.createUserSuccess)
+    const successMessage = screen.findByText(
+      CreateUserLanguage.createUserSuccess,
+    )
     expect(successMessage).toBeDefined()
-  })
-
-  it("redirects to users page on cancel", async () => {
-    render(<CreateUserPage />)
-    const cancelButton = await screen.findByText(FooterLanguage.cancelLabel)
-    cancelButton.click()
-    expect(history.location.pathname).toEqual("/users")
-  })
-
-  it("redirects to users page on close", async () => {
-    render(<CreateUserPage />)
-    const closeButton = await screen.findByText("ESC")
-    closeButton.click()
-    expect(history.location.pathname).toEqual("/users")
   })
 })

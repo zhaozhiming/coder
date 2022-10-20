@@ -1,90 +1,89 @@
-// all the possible states returned by the API
-export enum WorkspaceStateEnum {
-  starting = "Starting",
-  started = "Started",
-  stopping = "Stopping",
-  stopped = "Stopped",
-  canceling = "Canceling",
-  canceled = "Canceled",
-  deleting = "Deleting",
-  deleted = "Deleted",
-  queued = "Queued",
-  error = "Error",
-  loading = "Loading",
-}
+import { WorkspaceStatus } from "api/typesGenerated"
+import { ReactNode } from "react"
 
 // the button types we have
 export enum ButtonTypesEnum {
-  start,
-  stop,
-  delete,
-  update,
-  cancel,
-  error,
+  start = "start",
+  starting = "starting",
+  stop = "stop",
+  stopping = "stopping",
+  delete = "delete",
+  deleting = "deleting",
+  update = "update",
+  updating = "updating",
   // disabled buttons
-  canceling,
-  disabled,
-  queued,
-  loading,
+  canceling = "canceling",
+  deleted = "deleted",
+  pending = "pending",
 }
 
-type StateActionsType = {
-  [key in WorkspaceStateEnum]: {
-    primary: ButtonTypesEnum
-    secondary: ButtonTypesEnum[]
-  }
+export type ButtonMapping = {
+  [key in ButtonTypesEnum]: ReactNode
 }
 
-// A mapping of workspace state to button type
-// 'Primary' actions are the main ctas
-// 'Secondary' actions are ctas housed within the popover
-export const WorkspaceStateActions: StateActionsType = {
-  [WorkspaceStateEnum.starting]: {
-    primary: ButtonTypesEnum.cancel,
-    secondary: [],
+interface WorkspaceAbilities {
+  actions: ButtonTypesEnum[]
+  canCancel: boolean
+  canAcceptJobs: boolean
+}
+
+export const statusToAbilities: Record<WorkspaceStatus, WorkspaceAbilities> = {
+  starting: {
+    actions: [ButtonTypesEnum.starting],
+    canCancel: true,
+    canAcceptJobs: false,
   },
-  [WorkspaceStateEnum.started]: {
-    primary: ButtonTypesEnum.stop,
-    secondary: [ButtonTypesEnum.delete, ButtonTypesEnum.update],
+  running: {
+    actions: [ButtonTypesEnum.stop, ButtonTypesEnum.delete],
+    canCancel: false,
+    canAcceptJobs: true,
   },
-  [WorkspaceStateEnum.stopping]: {
-    primary: ButtonTypesEnum.cancel,
-    secondary: [],
+  stopping: {
+    actions: [ButtonTypesEnum.stopping],
+    canCancel: true,
+    canAcceptJobs: false,
   },
-  [WorkspaceStateEnum.stopped]: {
-    primary: ButtonTypesEnum.start,
-    secondary: [ButtonTypesEnum.delete, ButtonTypesEnum.update],
+  stopped: {
+    actions: [ButtonTypesEnum.start, ButtonTypesEnum.delete],
+    canCancel: false,
+    canAcceptJobs: true,
   },
-  [WorkspaceStateEnum.canceled]: {
-    primary: ButtonTypesEnum.start,
-    secondary: [ButtonTypesEnum.stop, ButtonTypesEnum.delete, ButtonTypesEnum.update],
+  canceled: {
+    actions: [
+      ButtonTypesEnum.start,
+      ButtonTypesEnum.stop,
+      ButtonTypesEnum.delete,
+    ],
+    canCancel: false,
+    canAcceptJobs: true,
   },
   // in the case of an error
-  [WorkspaceStateEnum.error]: {
-    primary: ButtonTypesEnum.start, // give the user the ability to start a workspace again
-    secondary: [ButtonTypesEnum.delete, ButtonTypesEnum.update], // allows the user to delete or update
+  failed: {
+    actions: [ButtonTypesEnum.start, ButtonTypesEnum.delete],
+    canCancel: false,
+    canAcceptJobs: true,
   },
   /**
    * disabled states
    */
-  [WorkspaceStateEnum.canceling]: {
-    primary: ButtonTypesEnum.canceling,
-    secondary: [],
+  canceling: {
+    actions: [ButtonTypesEnum.canceling],
+    canCancel: false,
+    canAcceptJobs: false,
   },
-  [WorkspaceStateEnum.deleting]: {
-    primary: ButtonTypesEnum.cancel,
-    secondary: [],
+  deleting: {
+    actions: [ButtonTypesEnum.deleting],
+    canCancel: true,
+    canAcceptJobs: false,
   },
-  [WorkspaceStateEnum.deleted]: {
-    primary: ButtonTypesEnum.disabled,
-    secondary: [],
+  deleted: {
+    actions: [ButtonTypesEnum.deleted],
+    canCancel: false,
+    canAcceptJobs: true,
   },
-  [WorkspaceStateEnum.queued]: {
-    primary: ButtonTypesEnum.queued,
-    secondary: [],
-  },
-  [WorkspaceStateEnum.loading]: {
-    primary: ButtonTypesEnum.loading,
-    secondary: [],
+  pending: {
+    actions: [ButtonTypesEnum.pending],
+    canCancel: false,
+    canAcceptJobs: false,
   },
 }
