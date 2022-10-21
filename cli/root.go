@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"text/template"
 	"time"
@@ -565,7 +566,14 @@ func checkVersions(cmd *cobra.Command, client *codersdk.Client) error {
 	}
 
 	fmtWarningText := `version mismatch: client %s, server %s
-download the server version with: 'curl -L https://coder.com/install.sh | sh -s -- --version %s'
+`
+	if runtime.GOOS == "windows" {
+		// We don't have a one-line install script for Windows.
+		warn := cliui.Styles.Warn.Copy().Align(lipgloss.Left)
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), warn.Render(fmtWarningText), clientVersion, info.Version)
+		return nil
+	}
+	fmtWarningText += `download the server version with: 'curl -L https://coder.com/install.sh | sh -s -- --version %s'
 `
 
 	if !buildinfo.VersionsMatch(clientVersion, info.Version) {
