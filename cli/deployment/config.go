@@ -331,30 +331,57 @@ func Config(flagset *pflag.FlagSet, vip *viper.Viper) (codersdk.DeploymentConfig
 		}
 	}
 
-	dcv := reflect.ValueOf(&dc).Elem()
-	t := dcv.Type()
-	for i := 0; i < t.NumField(); i++ {
-		fve := dcv.Field(i)
-		key := fve.FieldByName("Key").String()
-		value := fve.FieldByName("Value").Interface()
-
-		switch value.(type) {
-		case string:
-			fve.FieldByName("Value").SetString(vip.GetString(key))
-		case bool:
-			fve.FieldByName("Value").SetBool(vip.GetBool(key))
-		case int:
-			fve.FieldByName("Value").SetInt(int64(vip.GetInt(key)))
-		case time.Duration:
-			fve.FieldByName("Value").SetInt(int64(vip.GetDuration(key)))
-		case []string:
-			fve.FieldByName("Value").Set(reflect.ValueOf(vip.GetStringSlice(key)))
-		default:
-			return dc, xerrors.Errorf("unsupported type %T", value)
-		}
-	}
+	setConfig("", vip, &dc)
 
 	return dc, nil
+}
+
+func setConfig(prefix string, vip *viper.Viper, target interface{}) {
+	val := reflect.ValueOf(target).Elem()
+	typ := val.Type()
+	if strings.HasPrefix(typ.Name(), "DeploymentConfigField") {
+		value := val.FieldByName("Value").Interface()
+		switch value.(type) {
+		case string:
+			val.FieldByName("Value").SetString(vip.GetString(prefix))
+		case bool:
+			val.FieldByName("Value").SetBool(vip.GetBool(prefix))
+		case int:
+			val.FieldByName("Value").SetInt(int64(vip.GetInt(prefix)))
+		case time.Duration:
+			val.FieldByName("Value").SetInt(int64(vip.GetDuration(prefix)))
+		case []string:
+			val.FieldByName("Value").Set(reflect.ValueOf(vip.GetStringSlice(prefix)))
+		default:
+			panic(fmt.Sprintf("unsupported type %T", value))
+		}
+		return
+	}
+
+	for i := 0; i < typ.NumField(); i++ {
+		fv := val.Field(i)
+		ft := fv.Type()
+		tag := typ.Field(i).Tag.Get("json")
+		var key string
+		if prefix == "" {
+			key = tag
+		} else {
+			key = fmt.Sprintf("%s.%s", prefix, tag)
+		}
+		switch ft.Kind() {
+		case reflect.Struct:
+			v := fv.Interface()
+			setConfig(key, vip, &v)
+		case reflect.Slice:
+			for j := 0; j < fv.Len(); j++ {
+				key := fmt.Sprintf("%s.%d", key, j)
+				v := fv.Index(j)
+				setConfig(key, vip, &v)
+			}
+		default:
+			panic(fmt.Sprintf("unsupported type %T", ft))
+		}
+	}
 }
 
 func NewViper() *viper.Viper {
@@ -371,12 +398,9 @@ func NewViper() *viper.Viper {
 func setViperDefaults(prefix string, vip *viper.Viper, target interface{}) {
 	val := reflect.ValueOf(target)
 	typ := val.Type()
-	fmt.Println(typ.Name())
 	if strings.HasPrefix(typ.Name(), "DeploymentConfigField") {
-		key := val.FieldByName("Key").String()
 		value := val.FieldByName("Value").Interface()
-		fmt.Println(key, value)
-		vip.SetDefault(key, value)
+		vip.SetDefault(prefix, value)
 		return
 	}
 
@@ -392,42 +416,43 @@ func setViperDefaults(prefix string, vip *viper.Viper, target interface{}) {
 		}
 		switch ft.Kind() {
 		case reflect.Struct:
-			fmt.Println(key)
-			v := fv.Interface()
-			setViperDefaults(key, vip, v)
+			setViperDefaults(key, vip, fv.Interface())
 		case reflect.Slice:
 			for j := 0; j < fv.Len(); j++ {
 				key := fmt.Sprintf("%s.%d", key, j)
-				fmt.Println(key)
 				setViperDefaults(key, vip, fv.Index(j))
 			}
 		default:
-			continue
+			panic(fmt.Sprintf("unsupported type %T", ft))
 		}
 	}
 }
 
 //nolint:revive
 func AttachFlags(flagset *pflag.FlagSet, vip *viper.Viper, enterprise bool) {
-	dc := newConfig()
-	dcv := reflect.ValueOf(dc)
-	t := dcv.Type()
-	for i := 0; i < t.NumField(); i++ {
-		fv := dcv.Field(i)
-		isEnt := fv.FieldByName("Enterprise").Bool()
+	setFlags("", flagset, vip, newConfig(), enterprise)
+}
+
+//nolint:revive
+func setFlags(prefix string, flagset *pflag.FlagSet, vip *viper.Viper, target interface{}, enterprise bool) {
+	val := reflect.ValueOf(target)
+	typ := val.Type()
+	fmt.Println(typ.Name())
+	if strings.HasPrefix(typ.Name(), "DeploymentConfigField") {
+		isEnt := val.FieldByName("Enterprise").Bool()
 		if enterprise != isEnt {
-			continue
+			return
 		}
-		key := fv.FieldByName("Key").String()
-		flg := fv.FieldByName("Flag").String()
+		key := val.FieldByName("Key").String()
+		flg := val.FieldByName("Flag").String()
 		if flg == "" {
-			continue
+			return
 		}
-		usage := fv.FieldByName("Usage").String()
+		usage := val.FieldByName("Usage").String()
 		usage = fmt.Sprintf("%s\n%s", usage, cliui.Styles.Placeholder.Render("Consumes $"+formatEnv(key)))
-		shorthand := fv.FieldByName("Shorthand").String()
-		hidden := fv.FieldByName("Hidden").Bool()
-		value := fv.FieldByName("Value").Interface()
+		shorthand := val.FieldByName("Shorthand").String()
+		hidden := val.FieldByName("Hidden").Bool()
+		value := val.FieldByName("Value").Interface()
 
 		switch value.(type) {
 		case string:
@@ -441,12 +466,37 @@ func AttachFlags(flagset *pflag.FlagSet, vip *viper.Viper, enterprise bool) {
 		case []string:
 			_ = flagset.StringSliceP(flg, shorthand, vip.GetStringSlice(key), usage)
 		default:
-			continue
+			panic(fmt.Sprintf("unsupported type %T", typ))
 		}
 
 		_ = vip.BindPFlag(key, flagset.Lookup(flg))
 		if hidden {
 			_ = flagset.MarkHidden(flg)
+		}
+
+		return
+	}
+
+	for i := 0; i < typ.NumField(); i++ {
+		fv := val.Field(i)
+		ft := fv.Type()
+		tag := typ.Field(i).Tag.Get("json")
+		var key string
+		if prefix == "" {
+			key = tag
+		} else {
+			key = fmt.Sprintf("%s.%s", prefix, tag)
+		}
+		switch ft.Kind() {
+		case reflect.Struct:
+			setFlags(key, flagset, vip, fv.Interface(), enterprise)
+		case reflect.Slice:
+			for j := 0; j < fv.Len(); j++ {
+				key := fmt.Sprintf("%s.%d", key, j)
+				setFlags(key, flagset, vip, fv.Index(j), enterprise)
+			}
+		default:
+			panic(fmt.Sprintf("unsupported type %T", ft))
 		}
 	}
 }
