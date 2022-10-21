@@ -359,20 +359,52 @@ func Config(flagset *pflag.FlagSet, vip *viper.Viper) (codersdk.DeploymentConfig
 
 func NewViper() *viper.Viper {
 	dc := newConfig()
-	v := viper.New()
-	v.SetEnvPrefix("coder")
-	v.AutomaticEnv()
+	vip := viper.New()
+	vip.SetEnvPrefix("coder")
+	vip.AutomaticEnv()
 
-	dcv := reflect.ValueOf(dc)
-	t := dcv.Type()
-	for i := 0; i < t.NumField(); i++ {
-		fv := dcv.Field(i)
-		key := fv.FieldByName("Key").String()
-		value := fv.FieldByName("Value").Interface()
-		v.SetDefault(key, value)
+	setViperDefaults("", vip, dc)
+
+	return vip
+}
+
+func setViperDefaults(prefix string, vip *viper.Viper, target interface{}) {
+	val := reflect.ValueOf(target)
+	typ := val.Type()
+	fmt.Println(typ.Name())
+	if strings.HasPrefix(typ.Name(), "DeploymentConfigField") {
+		key := val.FieldByName("Key").String()
+		value := val.FieldByName("Value").Interface()
+		fmt.Println(key, value)
+		vip.SetDefault(key, value)
+		return
 	}
 
-	return v
+	for i := 0; i < typ.NumField(); i++ {
+		fv := val.Field(i)
+		ft := fv.Type()
+		tag := typ.Field(i).Tag.Get("json")
+		var key string
+		if prefix == "" {
+			key = tag
+		} else {
+			key = fmt.Sprintf("%s.%s", prefix, tag)
+		}
+		switch ft.Kind() {
+		case reflect.Struct:
+			fmt.Println(key)
+			v := fv.Interface()
+			setViperDefaults(key, vip, v)
+		case reflect.Slice:
+			for j := 0; j < fv.Len(); j++ {
+				key := fmt.Sprintf("%s.%d", key, j)
+				fmt.Println(key)
+				setViperDefaults(key, vip, fv.Index(j))
+			}
+		default:
+			continue
+		}
+	}
 }
 
 //nolint:revive

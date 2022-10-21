@@ -31,16 +31,16 @@ type DeploymentConfig struct {
 	CacheDirectory                   DeploymentConfigField[string]        `json:"cache_directory"`
 	InMemoryDatabase                 DeploymentConfigField[bool]          `json:"in_memory_database"`
 	ProvisionerDaemons               DeploymentConfigField[int]           `json:"provisioner_daemon_count"`
-	PostgresURL                      DeploymentConfigField[string]        `json:"-"`
+	PostgresURL                      DeploymentConfigField[string]        `json:"pg_connection_url"`
 	OAuth2GithubClientID             DeploymentConfigField[string]        `json:"oauth2_github_client_id"`
-	OAuth2GithubClientSecret         DeploymentConfigField[string]        `json:"-"`
+	OAuth2GithubClientSecret         DeploymentConfigField[string]        `json:"oauth2_github_client_secret"`
 	OAuth2GithubAllowedOrganizations DeploymentConfigField[[]string]      `json:"oauth2_github_allowed_organizations"`
 	OAuth2GithubAllowedTeams         DeploymentConfigField[[]string]      `json:"oauth2_github_allowed_teams"`
 	OAuth2GithubAllowSignups         DeploymentConfigField[bool]          `json:"oauth2_github_allow_signups"`
 	OAuth2GithubEnterpriseBaseURL    DeploymentConfigField[string]        `json:"oauth2_github_enterprise_base_url"`
 	OIDCAllowSignups                 DeploymentConfigField[bool]          `json:"oidc_allow_signups"`
 	OIDCClientID                     DeploymentConfigField[string]        `json:"oidc_client_id"`
-	OIDCClientSecret                 DeploymentConfigField[string]        `json:"-"`
+	OIDCClientSecret                 DeploymentConfigField[string]        `json:"oidc_client_secret"`
 	OIDCEmailDomain                  DeploymentConfigField[string]        `json:"oidc_email_domain"`
 	OIDCIssuerURL                    DeploymentConfigField[string]        `json:"oidc_issuer_url"`
 	OIDCScopes                       DeploymentConfigField[[]string]      `json:"oidc_scopes"`
@@ -61,7 +61,7 @@ type DeploymentConfig struct {
 	AgentStatRefreshInterval         DeploymentConfigField[time.Duration] `json:"agent_stat_refresh_interval"`
 	AuditLogging                     DeploymentConfigField[bool]          `json:"audit_logging"`
 	BrowserOnly                      DeploymentConfigField[bool]          `json:"browser_only"`
-	SCIMAPIKey                       DeploymentConfigField[string]        `json:"-"`
+	SCIMAPIKey                       DeploymentConfigField[string]        `json:"scim_api_key"`
 	UserWorkspaceQuota               DeploymentConfigField[int]           `json:"user_workspace_quota"`
 }
 
