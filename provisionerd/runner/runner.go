@@ -145,7 +145,7 @@ func (r *Runner) Run() {
 		if err != nil {
 			r.logger.Error(ctx, "send FailJob", slog.Error(err))
 		} else {
-			r.logger.Info(ctx, "sent FailedJob")
+			r.logger.Info(ctx, "sent FailedJob", slog.F("error", r.failedJob.Error))
 		}
 	} else {
 		r.logger.Debug(ctx, "sending CompletedJob")
@@ -278,7 +278,7 @@ func (r *Runner) doCleanFinish(ctx context.Context) {
 			}},
 		})
 		if err != nil {
-			r.logger.Warn(ctx, "failed to log cleanup")
+			r.logger.Warn(ctx, "failed to log cleanup", slog.Error(err))
 			return
 		}
 
