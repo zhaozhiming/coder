@@ -298,6 +298,7 @@ export interface DeploymentConfig {
   readonly auto_import_templates: DeploymentConfigField<string[]>
   readonly metrics_cache_refresh_interval: DeploymentConfigField<number>
   readonly agent_stat_refresh_interval: DeploymentConfigField<number>
+  readonly update_check: DeploymentConfigField<boolean>
   readonly audit_logging: DeploymentConfigField<boolean>
   readonly browser_only: DeploymentConfigField<boolean>
   readonly scim_api_key: DeploymentConfigField<string>
@@ -668,6 +669,13 @@ export interface TemplateVersionsByTemplateRequest extends Pagination {
 // From codersdk/templates.go
 export interface UpdateActiveTemplateVersion {
   readonly id: string
+}
+
+// From codersdk/updatecheck.go
+export interface UpdateCheckResponse {
+  readonly current: boolean
+  readonly version: string
+  readonly url: string
 }
 
 // From codersdk/users.go
