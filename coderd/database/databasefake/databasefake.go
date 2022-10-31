@@ -111,9 +111,10 @@ type data struct {
 	licenses                       []database.License
 	replicas                       []database.Replica
 
-	deploymentID  string
-	derpMeshKey   string
-	lastLicenseID int32
+	deploymentID    string
+	derpMeshKey     string
+	lastUpdateCheck []byte
+	lastLicenseID   int32
 }
 
 func (*fakeQuerier) Ping(_ context.Context) (time.Duration, error) {
@@ -154,6 +155,7 @@ func (q *fakeQuerier) AcquireProvisionerJob(_ context.Context, arg database.Acqu
 	}
 	return database.ProvisionerJob{}, sql.ErrNoRows
 }
+
 func (*fakeQuerier) DeleteOldAgentStats(_ context.Context) error {
 	// no-op
 	return nil
@@ -3106,6 +3108,24 @@ func (q *fakeQuerier) GetDERPMeshKey(_ context.Context) (string, error) {
 	defer q.mutex.RUnlock()
 
 	return q.derpMeshKey, nil
+}
+
+func (q *fakeQuerier) InsertOrUpdateLastUpdateCheck(_ context.Context, data string) error {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
+	q.lastUpdateCheck = []byte(data)
+	return nil
+}
+
+func (q *fakeQuerier) GetLastUpdateCheck(_ context.Context) (string, error) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
+	if q.lastUpdateCheck == nil {
+		return "", sql.ErrNoRows
+	}
+	return string(q.lastUpdateCheck), nil
 }
 
 func (q *fakeQuerier) InsertLicense(

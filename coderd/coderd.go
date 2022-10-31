@@ -39,6 +39,7 @@ import (
 	"github.com/coder/coder/coderd/rbac"
 	"github.com/coder/coder/coderd/telemetry"
 	"github.com/coder/coder/coderd/tracing"
+	"github.com/coder/coder/coderd/updatecheck"
 	"github.com/coder/coder/coderd/workspacequota"
 	"github.com/coder/coder/coderd/wsconncache"
 	"github.com/coder/coder/codersdk"
@@ -97,6 +98,7 @@ type Options struct {
 	AgentStatsRefreshInterval   time.Duration
 	Experimental                bool
 	DeploymentConfig            *codersdk.DeploymentConfig
+	UpdateCheckOptions          *updatecheck.Options // Set non-nil to enable update checking.
 }
 
 // New constructs a Coder API handler.
@@ -122,12 +124,6 @@ func New(options *Options) *API {
 	}
 	if options.APIRateLimit == 0 {
 		options.APIRateLimit = 512
-	}
-	if options.AgentStatsRefreshInterval == 0 {
-		options.AgentStatsRefreshInterval = 10 * time.Minute
-	}
-	if options.MetricsCacheRefreshInterval == 0 {
-		options.MetricsCacheRefreshInterval = time.Hour
 	}
 	if options.Authorizer == nil {
 		options.Authorizer = rbac.NewAuthorizer()
@@ -175,6 +171,13 @@ func New(options *Options) *API {
 		metricsCache:           metricsCache,
 		Auditor:                atomic.Pointer[audit.Auditor]{},
 		WorkspaceQuotaEnforcer: atomic.Pointer[workspacequota.Enforcer]{},
+	}
+	if options.UpdateCheckOptions != nil {
+		api.updateChecker = updatecheck.New(
+			options.Database,
+			options.Logger.Named("update_checker"),
+			*options.UpdateCheckOptions,
+		)
 	}
 	api.Auditor.Store(&options.Auditor)
 	api.WorkspaceQuotaEnforcer.Store(&options.WorkspaceQuotaEnforcer)
@@ -301,6 +304,9 @@ func New(options *Options) *API {
 					Version:     buildinfo.Version(),
 				})
 			})
+		})
+		r.Route("/updatecheck", func(r chi.Router) {
+			r.Get("/", api.updateCheck)
 		})
 		r.Route("/config", func(r chi.Router) {
 			r.Use(apiKeyMiddleware)
@@ -591,6 +597,7 @@ type API struct {
 	RootHandler chi.Router
 
 	metricsCache        *metricscache.Cache
+	updateChecker       *updatecheck.Checker
 	siteHandler         http.Handler
 	websocketWaitMutex  sync.Mutex
 	websocketWaitGroup  sync.WaitGroup
@@ -604,6 +611,9 @@ func (api *API) Close() error {
 	api.websocketWaitMutex.Unlock()
 
 	api.metricsCache.Close()
+	if api.updateChecker != nil {
+		api.updateChecker.Close()
+	}
 	coordinator := api.TailnetCoordinator.Load()
 	if coordinator != nil {
 		_ = (*coordinator).Close()

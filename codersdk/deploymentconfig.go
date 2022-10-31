@@ -35,6 +35,7 @@ type DeploymentConfig struct {
 	AutoImportTemplates         *DeploymentConfigField[[]string]        `json:"auto_import_templates" typescript:",notnull"`
 	MetricsCacheRefreshInterval *DeploymentConfigField[time.Duration]   `json:"metrics_cache_refresh_interval" typescript:",notnull"`
 	AgentStatRefreshInterval    *DeploymentConfigField[time.Duration]   `json:"agent_stat_refresh_interval" typescript:",notnull"`
+	UpdateCheck                 *DeploymentConfigField[bool]            `json:"update_check" typescript:",notnull"`
 	AuditLogging                *DeploymentConfigField[bool]            `json:"audit_logging" typescript:",notnull"`
 	BrowserOnly                 *DeploymentConfigField[bool]            `json:"browser_only" typescript:",notnull"`
 	SCIMAPIKey                  *DeploymentConfigField[string]          `json:"scim_api_key" typescript:",notnull"`

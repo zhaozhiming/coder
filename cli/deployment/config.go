@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/xerrors"
 
+	"github.com/coder/coder/buildinfo"
 	"github.com/coder/coder/cli/cliui"
 	"github.com/coder/coder/cli/config"
 	"github.com/coder/coder/codersdk"
@@ -324,6 +325,12 @@ func newConfig() *codersdk.DeploymentConfig {
 			Flag:    "agent-stats-refresh-interval",
 			Hidden:  true,
 			Default: 10 * time.Minute,
+		},
+		UpdateCheck: &codersdk.DeploymentConfigField[bool]{
+			Name:    "Update Check",
+			Usage:   "Periodically check for new releases of Coder and inform the owner.",
+			Flag:    "update-check",
+			Default: flag.Lookup("test.v") == nil && !buildinfo.IsDev(),
 		},
 		AuditLogging: &codersdk.DeploymentConfigField[bool]{
 			Name:       "Audit Logging",
