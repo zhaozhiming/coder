@@ -66,7 +66,8 @@ const TimeoutStatus: React.FC<{
   const [isOpen, setIsOpen] = useState(false)
   const id = isOpen ? "timeout-popover" : undefined
   const troubleshootLink =
-    agent.troubleshooting_url ?? `/templates/${workspace.template_name}#readme`
+    agent.troubleshooting_url ??
+    "https://coder.com/docs/coder-oss/latest/templates#troubleshooting-templates"
 
   return (
     <>
