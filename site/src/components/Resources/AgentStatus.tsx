@@ -58,8 +58,7 @@ const ConnectingStatus: React.FC = () => {
 
 const TimeoutStatus: React.FC<{
   agent: WorkspaceAgent
-  workspace: Workspace
-}> = ({ agent, workspace }) => {
+}> = ({ agent }) => {
   const { t } = useTranslation("agent")
   const styles = useStyles()
   const anchorRef = useRef<SVGSVGElement>(null)
@@ -112,7 +111,7 @@ export const AgentStatus: React.FC<{
         <DisconnectedStatus />
       </Cond>
       <Cond condition={agent.status === "timeout"}>
-        <TimeoutStatus agent={agent} workspace={workspace} />
+        <TimeoutStatus agent={agent} />
       </Cond>
       <Cond>
         <ConnectingStatus />
